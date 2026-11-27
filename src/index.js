@@ -249,6 +249,56 @@ const API = {
     return { ok: true, ls: results };
   },
 
+
+  async chiTietLead(env, req, a, d) {
+    const l = await env.DB.prepare('SELECT * FROM leads WHERE ma = ?').bind(String(d.ma || '')).first();
+    if (!l) return fail('Không tìm thấy lead.');
+    const hist = (await env.DB.prepare('SELECT tu, den, luc, boi, ghi_chu FROM stage_history WHERE ma = ? ORDER BY id').bind(l.ma).all()).results;
+    const act = (await env.DB.prepare("SELECT luc, usr, action, detail FROM audit WHERE obj = ? AND action IN ('THEM_LEAD','CAP_NHAT_SDT','CHUYEN_SALE') ORDER BY id").bind(l.ma).all()).results;
+    const ten = {}; for (const u of (await env.DB.prepare('SELECT username, ten FROM users').all()).results) ten[u.username] = u.ten;
+    const ev = [];
+    if (!act.some((x) => x.action === 'THEM_LEAD')) ev.push({ luc: l.tao_luc, loai: 'Tạo lead', noiDung: 'Nguồn ' + l.nguon + ', Sale ' + l.sale, boi: '' });
+    for (const x of act) ev.push({ luc: x.luc, loai: x.action === 'THEM_LEAD' ? 'Tạo lead' : x.action === 'CHUYEN_SALE' ? 'Chuyển Sale' : 'SĐT', noiDung: x.detail.replace(/co SDT/g, 'có SĐT').replace(/chua co SDT/g, 'chưa có SĐT').replace(/doi SDT/g, 'đổi SĐT').replace(/them SDT, len uu tien/g, 'thêm SĐT, lên diện ưu tiên'), boi: ten[x.usr] || x.usr });
+    for (const h of hist) ev.push({ luc: h.luc, loai: 'Đổi giai đoạn', noiDung: h.tu + ' → ' + h.den + (h.ghi_chu ? ' (' + h.ghi_chu + ')' : ''), boi: h.boi });
+    ev.sort((x, y) => y.luc - x.luc);
+    return { ok: true, lead: { ...leadOut(l), ngayCoSdt: l.ngay_co_sdt, taoLuc: l.tao_luc, suaBoi: l.sua_boi, suaLuc: l.sua_luc }, ev };
+  },
+
+  async baoCao(env, req, a, d) {
+    const b = bkk(); const cur = String(b.getUTCFullYear()) + '-' + ('0' + (b.getUTCMonth() + 1)).slice(-2);
+    const th = /^\d{4}-(0[1-9]|1[0-2])$/.test(String(d.thang || '')) ? String(d.thang) : cur;
+    const range = (m) => { const [y, mo] = m.split('-').map(Number); const last = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+      return { t: m + '-01', e: m + '-' + ('0' + last).slice(-2), ms: Date.UTC(y, mo - 1, 1) - 7 * 3600000, me: Date.UTC(y, mo, 1) - 7 * 3600000 }; };
+    const prevM = (() => { const [y, mo] = th.split('-').map(Number); const p = new Date(Date.UTC(y, mo - 2, 1)); return p.getUTCFullYear() + '-' + ('0' + (p.getUTCMonth() + 1)).slice(-2); })();
+    const dm = await catalog(env);
+    const stat = async (m) => { const r = range(m);
+      const [n, k] = await env.DB.batch([
+        env.DB.prepare('SELECT COUNT(*) AS c FROM leads WHERE ngay_nhan >= ? AND ngay_nhan <= ?').bind(r.t, r.e),
+        env.DB.prepare("SELECT COUNT(DISTINCT ma) AS c FROM stage_history WHERE den = 'Đã ký' AND luc >= ? AND luc < ?").bind(r.ms, r.me)]);
+      const nhan = n.results[0].c, ky = k.results[0].c; return { nhan, ky, tyLeKy: nhan ? ky / nhan : null }; };
+    const R = range(th), today = bkk().toISOString().slice(0, 10);
+    const q = (sql, ...bind) => env.DB.prepare(sql).bind(...bind);
+    const ph = CLOSED.map(() => '?').join(',');
+    const [gd, ng, sl, ky, mo, qh, ld, cs, tong] = await env.DB.batch([
+      q('SELECT giai_doan AS k, COUNT(*) AS c FROM leads GROUP BY giai_doan'),
+      q('SELECT nguon AS k, COUNT(*) AS c FROM leads WHERE ngay_nhan >= ? AND ngay_nhan <= ? GROUP BY nguon', R.t, R.e),
+      q('SELECT sale AS k, COUNT(*) AS c FROM leads WHERE ngay_nhan >= ? AND ngay_nhan <= ? GROUP BY sale', R.t, R.e),
+      q("SELECT l.sale AS k, COUNT(DISTINCT h.ma) AS c FROM stage_history h JOIN leads l ON l.ma = h.ma WHERE h.den = 'Đã ký' AND h.luc >= ? AND h.luc < ? GROUP BY l.sale", R.ms, R.me),
+      q(`SELECT sale AS k, COUNT(*) AS c FROM leads WHERE giai_doan NOT IN (${ph}) GROUP BY sale`, ...CLOSED),
+      q(`SELECT ma, ten, sale, giai_doan, loai_viec, hanh_dong, ngay_hd FROM leads WHERE giai_doan NOT IN (${ph}) AND ngay_hd <> '' AND ngay_hd < ? ORDER BY ngay_hd LIMIT 50`, ...CLOSED, today),
+      q("SELECT ly_do AS k, COUNT(*) AS c FROM leads WHERE giai_doan IN ('Mất','Không tiềm năng') AND ngay_doi_gd >= ? AND ngay_doi_gd < ? GROUP BY ly_do", R.ms, R.me),
+      q("SELECT CASE WHEN sdt = '' THEN 'Chưa có SĐT' ELSE cach_sdt END AS k, COUNT(*) AS c FROM leads WHERE ngay_nhan >= ? AND ngay_nhan <= ? GROUP BY 1", R.t, R.e),
+      q(`SELECT COUNT(*) AS c FROM leads WHERE giai_doan NOT IN (${ph})`, ...CLOSED),
+    ]);
+    const map = (x) => Object.fromEntries(x.results.map((r) => [r.k || '(chưa ghi)', r.c]));
+    const gdM = map(gd), ngM = map(ng), slN = map(sl), slK = map(ky), slO = map(mo);
+    const quaHan = qh.results, qhBySale = {}; for (const r of quaHan) qhBySale[r.sale] = (qhBySale[r.sale] || 0) + 1;
+    const theoSale = dm.sale.map((s) => ({ sale: s, nhan: slN[s] || 0, ky: slK[s] || 0, tyLeKy: slN[s] ? (slK[s] || 0) / slN[s] : null, dangMo: slO[s] || 0, quaHan: qhBySale[s] || 0 }));
+    return { ok: true, thang: th, thangTruoc: prevM, thangNay: await stat(th), truoc: await stat(prevM), dangMo: tong.results[0].c,
+      theoGiaiDoan: dm.giaiDoan.map((k) => ({ k, c: gdM[k] || 0 })), theoNguon: dm.nguon.map((k) => ({ k, c: ngM[k] || 0 })), theoSale,
+      lyDo: Object.entries(map(ld)).map(([k, c]) => ({ k, c })), cachSdt: Object.entries(map(cs)).map(([k, c]) => ({ k, c })), quaHan, homNay: today };
+  },
+
   // ---- quan tri ----
   async danhSachTaiKhoan(env) {
     const { results } = await env.DB.prepare('SELECT username, ten, role, active, must_change, locked_until FROM users ORDER BY role, username').all();
@@ -293,7 +343,7 @@ const API = {
 // quyen: 'public' = khong can dang nhap; 'auth' = da dang nhap (ke ca dang bat buoc doi MK); 'use' = da doi MK; 'admin'
 const PERM = {
   login: 'public', phien: 'public', logout: 'public', doiMatKhau: 'auth', layDanhMuc: 'use',
-  themLead: 'use', danhSachLead: 'use', doiGiaiDoan: 'use', capNhatSdt: 'use', chuyenSale: 'use', lichSu: 'use',
+  themLead: 'use', danhSachLead: 'use', doiGiaiDoan: 'use', capNhatSdt: 'use', chuyenSale: 'use', lichSu: 'use', chiTietLead: 'use', baoCao: 'use',
   danhSachTaiKhoan: 'admin', taoTaiKhoan: 'admin', datLaiMatKhau: 'admin', tatTaiKhoan: 'admin',
 };
 

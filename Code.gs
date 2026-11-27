@@ -14,7 +14,8 @@ var ROLES = ['Admin', 'QLDA', 'Sale'];
 
 var LEAD_COLS = ['Mã lead', 'Ngày nhận', 'Tên khách', 'SĐT', 'Nguồn', 'Sale phụ trách', 'Giai đoạn',
   'Ngày đổi giai đoạn gần nhất', 'Tóm lược khách', 'Hành động tiếp theo', 'Ngày hành động',
-  'Giá trị dự kiến (chưa VAT)', 'Lý do mất', 'Ghi chú', 'Tạo lúc', 'Người sửa cuối', 'Sửa lúc'];
+  'Giá trị dự kiến (chưa VAT)', 'Lý do mất', 'Ghi chú', 'Tạo lúc', 'Người sửa cuối', 'Sửa lúc',
+  'Link Facebook/fanpage', 'Ưu tiên (có SĐT)', 'Ngày có SĐT'];
 var CLOSED = ['Đã ký', 'Mất', 'Không tiềm năng'];
 
 function doGet() {
@@ -166,6 +167,23 @@ function layDanhMuc(token) {
 }
 
 /* ---------- lead ---------- */
+function normLink_(v) {
+  var x = String(v || '').trim().toLowerCase();
+  if (!x || /\s/.test(x)) return '';
+  x = x.replace(/^https?:\/\//, '').replace(/^(www\.|m\.|mbasic\.|web\.)/, '').replace(/#.*$/, '');
+  var m = /^([^?]*)\?(.*)$/.exec(x), id = '';
+  if (m) { x = m[1]; var q = /(?:^|&)id=(\d+)/.exec(m[2]); if (q) id = '?id=' + q[1]; }
+  x = x.replace(/\/+$/, '') + id;
+  return /^[a-z0-9.-]+\.[a-z]{2,}(\/.*)?$/.test(x) ? x : '';
+}
+function leadDup_(data, sdt, link, skipRow) {
+  for (var i = 1; i < data.length; i++) {
+    if (i + 1 === skipRow || !data[i][0]) continue;
+    var hit = (sdt && phoneKey_(data[i][3]) === phoneKey_(sdt)) || (link && normLink_(data[i][17]) === link);
+    if (hit) return 'Lead đã có trong hệ thống: ' + data[i][0] + ', Sale ' + data[i][5] + ', giai đoạn ' + data[i][6] + '.';
+  }
+  return '';
+}
 function themLead(token, d) {
   return wrap_(function () {
     var a = auth_(token); if (!a) return EXPIRED;
@@ -173,12 +191,17 @@ function themLead(token, d) {
     d = d || {};
     var dm = danhMuc_();
     var ten = String(d.ten || '').trim(), tl = String(d.tomLuoc || '').trim(), hd = String(d.hanhDong || '').trim();
-    var sdt = normPhone_(d.sdt), ngayNhan = parseDate_(d.ngayNhan), ngayHd = parseDate_(d.ngayHanhDong);
+    var rawSdt = String(d.sdt || '').trim(), sdt = rawSdt ? normPhone_(rawSdt) : '';
+    var rawLink = String(d.link || '').trim(), link = rawLink ? normLink_(rawLink) : '';
+    var ngayNhan = parseDate_(d.ngayNhan), ngayHd = parseDate_(d.ngayHanhDong);
     var gia = (d.giaTri === '' || d.giaTri === null || d.giaTri === undefined) ? '' : Number(d.giaTri);
     var sale = a.role === 'Sale' ? a.ten : String(d.sale || '').trim();
     var err = [];
     if (!ten || ten.length > 200) err.push('Tên khách bắt buộc, tối đa 200 ký tự.');
-    if (!sdt) err.push('SĐT không hợp lệ (10 hoặc 11 số, bắt đầu bằng 0).');
+    if (rawSdt && !sdt) err.push('SĐT không hợp lệ (10 hoặc 11 số, bắt đầu bằng 0). Chưa có SĐT thì để trống.');
+    if (rawLink && !link) err.push('Link Facebook/fanpage không hợp lệ.');
+    if (!sdt && !link) err.push('Cần ít nhất SĐT hoặc link Facebook/fanpage của khách.');
+    if (rawLink.length > 300) err.push('Link tối đa 300 ký tự.');
     if (dm.nguon.indexOf(String(d.nguon)) < 0) err.push('Chọn nguồn từ danh sách.');
     if (dm.sale.indexOf(sale) < 0) err.push('Chọn Sale phụ trách từ danh sách.');
     if (!ngayNhan) err.push('Ngày nhận không hợp lệ.');
@@ -192,9 +215,7 @@ function themLead(token, d) {
     var lock = LockService.getScriptLock(); lock.waitLock(20000);
     try {
       var s = sh_('Lead'), data = s.getDataRange().getValues();
-      for (var i = 1; i < data.length; i++) {
-        if (phoneKey_(data[i][3]) === phoneKey_(sdt)) return { ok: false, msg: 'SĐT đã có trong hệ thống: ' + data[i][0] + ', Sale ' + data[i][5] + ', giai đoạn ' + data[i][6] + '.' };
-      }
+      var dup = leadDup_(data, sdt, link, 0); if (dup) return { ok: false, msg: dup };
       var key = 'L-' + fmt_(now_(), 'yyMM');
       var cs = sh_('Bộ đếm'), cd = cs.getDataRange().getValues(), n = 0, crow = -1;
       for (var j = 1; j < cd.length; j++) if (String(cd[j][0]) === key) { n = Number(cd[j][1]) || 0; crow = j + 1; }
@@ -203,27 +224,75 @@ function themLead(token, d) {
       var ma = key + '-' + ('000' + n).slice(-3);
       var t = now_();
       s.appendRow([ma, ngayNhan, safe_(ten), sdt, d.nguon, sale, 'Mới', t, safe_(tl), safe_(hd), ngayHd,
-        gia, '', '', t, a.ten, t]);
-      s.getRange(s.getLastRow(), 4).setNumberFormat('@').setValue(sdt);   // giu so 0 dau
-      log_(a.username, 'THEM_LEAD', ma, 'Sale ' + sale);
+        gia, '', '', t, a.ten, t, safe_(rawLink), sdt ? 'Có' : 'Không', sdt ? t : '']);
+      if (sdt) s.getRange(s.getLastRow(), 4).setNumberFormat('@').setValue(sdt);   // giu so 0 dau
+      log_(a.username, 'THEM_LEAD', ma, 'Sale ' + sale + (sdt ? ', co SDT' : ', chua co SDT'));
       return { ok: true, ma: ma };
     } finally { lock.releaseLock(); }
   });
 }
 function rowToLead_(r) {
   return { ma: r[0], ngayNhan: fmtDate_(r[1]), ten: r[2], sdt: phoneShow_(r[3]), nguon: r[4], sale: r[5], giaiDoan: r[6],
-    ngayDoiGd: fmtDate_(r[7]), tomLuoc: r[8], hanhDong: r[9], ngayHd: fmtDate_(r[10]), giaTri: r[11], lyDoMat: r[12] };
+    ngayDoiGd: fmtDate_(r[7]), tomLuoc: r[8], hanhDong: r[9], ngayHd: fmtDate_(r[10]), giaTri: r[11], lyDoMat: r[12],
+    link: r[17] || '', uuTien: String(r[18]) === 'Có' };
 }
 function danhSachLead(token) {
   return wrap_(function () {
     var a = auth_(token); if (!a) return EXPIRED;
-    var data = sh_('Lead').getDataRange().getValues(), out = [];
-    for (var i = data.length - 1; i >= 1 && out.length < 500; i--) {
+    var data = sh_('Lead').getDataRange().getValues(), pri = [], rest = [];
+    for (var i = data.length - 1; i >= 1; i--) {       // moi nhat truoc, lead uu tien len dau
       if (!data[i][0]) continue;
-      if (a.role === 'Sale' && String(data[i][5]) !== a.ten) continue;
-      out.push(rowToLead_(data[i]));
+      (String(data[i][18]) === 'Có' ? pri : rest).push(rowToLead_(data[i]));
     }
-    return { ok: true, leads: out };
+    return { ok: true, leads: pri.concat(rest).slice(0, 500) };
+  });
+}
+function capNhatSdt(token, ma, sdtIn) {
+  return wrap_(function () {
+    var a = auth_(token); if (!a) return EXPIRED;
+    if (a.doiMK) return { ok: false, msg: 'Đổi mật khẩu trước khi dùng.' };
+    var sdt = normPhone_(sdtIn);
+    if (!sdt) return { ok: false, msg: 'SĐT không hợp lệ (10 hoặc 11 số, bắt đầu bằng 0).' };
+    var lock = LockService.getScriptLock(); lock.waitLock(20000);
+    try {
+      var s = sh_('Lead'), data = s.getDataRange().getValues();
+      for (var i = 1; i < data.length; i++) {
+        if (String(data[i][0]) !== String(ma)) continue;
+        if (a.role === 'Sale' && String(data[i][5]) !== a.ten) return { ok: false, msg: 'Lead này không thuộc Sale của bạn.' };
+        var dup = leadDup_(data, sdt, '', i + 1); if (dup) return { ok: false, msg: dup };
+        var t = now_(), had = phoneKey_(data[i][3]) !== '';
+        s.getRange(i + 1, 4).setNumberFormat('@').setValue(sdt);
+        s.getRange(i + 1, 19, 1, 2).setValues([['Có', had ? data[i][19] : t]]);
+        s.getRange(i + 1, 16, 1, 2).setValues([[a.ten, t]]);
+        log_(a.username, 'CAP_NHAT_SDT', ma, had ? 'doi SDT' : 'them SDT, len uu tien');
+        return { ok: true, uuTien: true };
+      }
+      return { ok: false, msg: 'Không tìm thấy lead.' };
+    } finally { lock.releaseLock(); }
+  });
+}
+function chuyenSale(token, ma, saleMoi, lyDo) {
+  return wrap_(function () {
+    var a = auth_(token); if (!a) return EXPIRED;
+    if (a.doiMK) return { ok: false, msg: 'Đổi mật khẩu trước khi dùng.' };
+    var dm = danhMuc_(), ly = String(lyDo || '').trim();
+    if (dm.sale.indexOf(String(saleMoi)) < 0) return { ok: false, msg: 'Chọn Sale từ danh sách.' };
+    if (ly.length > 300) return { ok: false, msg: 'Lý do tối đa 300 ký tự.' };
+    var lock = LockService.getScriptLock(); lock.waitLock(20000);
+    try {
+      var s = sh_('Lead'), data = s.getDataRange().getValues();
+      for (var i = 1; i < data.length; i++) {
+        if (String(data[i][0]) !== String(ma)) continue;
+        var cu = String(data[i][5]);
+        if (cu === String(saleMoi)) return { ok: false, msg: 'Lead đã thuộc Sale này.' };
+        var t = now_();
+        s.getRange(i + 1, 6).setValue(saleMoi);
+        s.getRange(i + 1, 16, 1, 2).setValues([[a.ten, t]]);
+        log_(a.username, 'CHUYEN_SALE', ma, cu + ' -> ' + saleMoi + (ly ? ' | ' + ly : ''));
+        return { ok: true };
+      }
+      return { ok: false, msg: 'Không tìm thấy lead.' };
+    } finally { lock.releaseLock(); }
   });
 }
 function doiGiaiDoan(token, ma, gd, lyDo, hanhDong, ngayHd) {
@@ -297,7 +366,7 @@ function selfTest() {
   r = doiMatKhau(t, p1, p2); ok(r.ok, 'doi mat khau');
   r = login(u, p2); ok(r.ok && !r.user.doiMK, 'dang nhap mat khau moi'); t = r.token;
   var sdt = '09' + ('00000000' + Math.floor(Math.random() * 1e8)).slice(-8);
-  var d = { ngayNhan: fmt_(now_(), 'yyyy-MM-dd'), nguon: 'Khách cho số', ten: 'KHACH THU TU DONG', sdt: sdt, sale: 'Trung', giaTri: '1000000', tomLuoc: 'du lieu thu', hanhDong: 'Goi thu', ngayHanhDong: fmt_(now_(), 'yyyy-MM-dd') };
+  var d = { ngayNhan: fmt_(now_(), 'yyyy-MM-dd'), nguon: 'Chạy ad Facebook', ten: 'KHACH THU TU DONG', sdt: sdt, sale: 'Trung', giaTri: '1000000', tomLuoc: 'du lieu thu', hanhDong: 'Goi thu', ngayHanhDong: fmt_(now_(), 'yyyy-MM-dd') };
   r = themLead(t, d); ok(r.ok && /^L-\d{4}-\d{3}$/.test(r.ma), 'them lead ma tu sinh ' + r.ma);
   var ma = r.ma;
   r = themLead(t, d); ok(!r.ok, 'trung SDT bi chan');

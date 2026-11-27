@@ -44,9 +44,10 @@ th{background:#eef1f5}.msg{margin-top:10px;padding:8px;border-radius:4px}.err{ba
    <div><label>Mã lead</label><input class="auto" value="Tự sinh khi lưu" disabled></div>
    <div><label>Giai đoạn</label><input class="auto" value="Mới (tự đặt)" disabled></div>
    <div><label>Ngày nhận <span class="req">*</span></label><input id="aNgay" type="date"></div>
-   <div><label>Nguồn <span class="req">*</span> <span class="hint">(Khách cho số = khách chủ động nhắn SĐT; Tự tìm = Sale dùng tool kiểm tra)</span></label><select id="aNguon"></select></div>
+   <div><label>Nguồn <span class="req">*</span> <span class="hint">(kênh khách đến với mình)</span></label><select id="aNguon"></select></div>
    <div><label>Tên khách <span class="req">*</span></label><input id="aTen" maxlength="200"></div>
-   <div><label>SĐT <span class="req">*</span></label><input id="aSdt" placeholder="0xxxxxxxxx"></div>
+   <div><label>SĐT <span class="hint">(chưa có thì để trống, nhưng phải có link bên dưới)</span></label><input id="aSdt" placeholder="0xxxxxxxxx"></div>
+   <div><label>Link Facebook/fanpage khách <span class="hint">(bắt buộc nếu chưa có SĐT)</span></label><input id="aLink" maxlength="300" placeholder="facebook.com/..."></div>
    <div><label>Sale phụ trách <span class="req">*</span></label><select id="aSale"></select></div>
    <div><label>Giá trị dự kiến (chưa VAT, đồng)</label><input id="aGia" type="number" min="0"></div>
   </div>
@@ -59,8 +60,8 @@ th{background:#eef1f5}.msg{margin-top:10px;padding:8px;border-radius:4px}.err{ba
  </div>
 
  <div id="pList" class="card hidden">
-  <h3>Danh sách lead</h3><div id="lmsg"></div>
-  <table><thead><tr><th>Mã</th><th>Ngày nhận</th><th>Khách</th><th>SĐT</th><th>Nguồn</th><th>Sale</th><th>Giai đoạn</th><th>Đổi GĐ gần nhất</th><th>Hành động tiếp theo</th><th></th></tr></thead><tbody id="tb"></tbody></table>
+  <h3>Danh sách lead</h3><p><label style="display:inline">Hiển thị: </label><select id="lFilter" onchange="renderList()"><option value="all">Tất cả lead</option><option value="mine">Lead của tôi</option></select> <span class="hint">Lead đã có SĐT (★ Ưu tiên) xếp lên đầu.</span></p><div id="lmsg"></div>
+  <table><thead><tr><th>Mã</th><th>Ngày nhận</th><th>Khách</th><th>SĐT / Link</th><th>Nguồn</th><th>Sale</th><th>Giai đoạn</th><th>Đổi GĐ gần nhất</th><th>Hành động tiếp theo</th><th></th></tr></thead><tbody id="tb"></tbody></table>
  </div>
 
  <div id="pGd" class="card hidden">
@@ -96,13 +97,24 @@ function doPass(){call('doiMatKhau',[T,$('pc').value,$('pn').value],function(r){
   if(!r.ok){msg('pm',r.msg);return}$('pc').value='';$('pn').value='';U.doiMK=false;after()})}
 function doLogout(){call('logout',[T],function(){T=null;U=null;try{sessionStorage.removeItem('t')}catch(e){}view('vLogin')})}
 function doAdd(){$('aBtn').disabled=true;msg('am','');
-  call('themLead',[T,{ngayNhan:$('aNgay').value,nguon:$('aNguon').value,ten:$('aTen').value,sdt:$('aSdt').value,sale:$('aSale').value,
+  call('themLead',[T,{ngayNhan:$('aNgay').value,nguon:$('aNguon').value,ten:$('aTen').value,sdt:$('aSdt').value,link:$('aLink').value,sale:$('aSale').value,
    giaTri:$('aGia').value,tomLuoc:$('aTl').value,hanhDong:$('aHd').value,ngayHanhDong:$('aNgayHd').value}],function(r){
    $('aBtn').disabled=false;if(!r.ok){msg('am',r.msg);return}
-   msg('am','Đã lưu. Mã lead: '+r.ma,true);['aTen','aSdt','aGia','aTl','aHd','aNgayHd'].forEach(function(i){$(i).value=''})})}
+   msg('am','Đã lưu. Mã lead: '+r.ma,true);['aTen','aSdt','aLink','aGia','aTl','aHd','aNgayHd'].forEach(function(i){$(i).value=''})})}
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
-function loadList(){call('danhSachLead',[T],function(r){if(!r.ok){msg('lmsg',r.msg);return}LEADS=r.leads;
-  $('tb').innerHTML=LEADS.map(function(l,i){return'<tr><td>'+esc(l.ma)+'</td><td>'+esc(l.ngayNhan)+'</td><td>'+esc(l.ten)+'</td><td>'+esc(l.sdt)+'</td><td>'+esc(l.nguon)+'</td><td>'+esc(l.sale)+'</td><td>'+esc(l.giaiDoan)+'</td><td>'+esc(l.ngayDoiGd)+'</td><td>'+esc(l.hanhDong)+' '+esc(l.ngayHd)+'</td><td><button class="sec" onclick="openGd('+i+')">Đổi GĐ</button></td></tr>'}).join('')})}
+function loadList(){call('danhSachLead',[T],function(r){if(!r.ok){msg('lmsg',r.msg);return}LEADS=r.leads;renderList()})}
+function renderList(){var f=$('lFilter').value;
+  $('tb').innerHTML=LEADS.map(function(l,i){if(f==='mine'&&l.sale!==U.ten)return'';
+   var own=U.role!=='Sale'||l.sale===U.ten,c=l.sdt?esc(l.sdt):(l.link?'<span class="hint">'+esc(l.link)+'</span>':'');
+   return'<tr'+(l.uuTien?' style="background:#fff8e1"':'')+'><td>'+esc(l.ma)+(l.uuTien?' <b>★ Ưu tiên</b>':'')+'</td><td>'+esc(l.ngayNhan)+'</td><td>'+esc(l.ten)+'</td><td>'+c+'</td><td>'+esc(l.nguon)+'</td><td>'+esc(l.sale)+'</td><td>'+esc(l.giaiDoan)+'</td><td>'+esc(l.ngayDoiGd)+'</td><td>'+esc(l.hanhDong)+' '+esc(l.ngayHd)+'</td><td>'
+   +(own?'<button class="sec" onclick="openGd('+i+')">Đổi GĐ</button> ':'')
+   +(own?'<button class="sec" onclick="askSdt('+i+')">'+(l.sdt?'Sửa SĐT':'Cập nhật SĐT')+'</button> ':'')
+   +'<button class="sec" onclick="askSale('+i+')">Chuyển Sale</button></td></tr>'}).join('')}
+function askSdt(i){var l=LEADS[i],v=prompt('SĐT mới của '+l.ten+' (0xxxxxxxxx):',l.sdt||'');if(v===null)return;
+  call('capNhatSdt',[T,l.ma,v],function(r){if(!r.ok){msg('lmsg',r.msg);return}msg('lmsg','Đã cập nhật SĐT, lead lên diện ưu tiên.',true);loadList()})}
+function askSale(i){var l=LEADS[i],o=DM.sale.filter(function(x){return x!==l.sale}),v=prompt('Chuyển lead '+l.ma+' ('+l.ten+') từ '+l.sale+' sang ai?\n'+o.join(', '),'');if(!v)return;
+  var ly=prompt('Lý do chuyển (có thể bỏ trống):','')||'';
+  call('chuyenSale',[T,l.ma,v.trim(),ly],function(r){if(!r.ok){msg('lmsg',r.msg);return}msg('lmsg','Đã chuyển lead sang '+v.trim()+'.',true);loadList()})}
 function openGd(i){CUR=LEADS[i];$('gMa').textContent=CUR.ma;$('gGd').value=CUR.giaiDoan;gdChange();show('Gd')}
 function gdChange(){var c=CLOSED.indexOf($('gGd').value)>=0;$('gOpen').classList.toggle('hidden',c);$('gLost').classList.toggle('hidden',$('gGd').value!=='Mất')}
 function doGd(){call('doiGiaiDoan',[T,CUR.ma,$('gGd').value,$('gLy').value,$('gHd').value,$('gNgay').value],function(r){

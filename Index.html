@@ -44,10 +44,11 @@ th{background:#eef1f5}.msg{margin-top:10px;padding:8px;border-radius:4px}.err{ba
    <div><label>Mã lead</label><input class="auto" value="Tự sinh khi lưu" disabled></div>
    <div><label>Giai đoạn</label><input class="auto" value="Mới (tự đặt)" disabled></div>
    <div><label>Ngày nhận <span class="req">*</span></label><input id="aNgay" type="date"></div>
-   <div><label>Nguồn <span class="req">*</span> <span class="hint">(kênh khách đến với mình)</span></label><select id="aNguon"></select></div>
+   <div><label>Nguồn <span class="req">*</span> <span class="hint">(kênh khách đến với mình)</span></label><select id="aNguon" onchange="srcChange()"></select></div>
    <div><label>Tên khách <span class="req">*</span></label><input id="aTen" maxlength="200"></div>
-   <div><label>SĐT <span class="hint">(chưa có thì để trống, nhưng phải có link bên dưới)</span></label><input id="aSdt" placeholder="0xxxxxxxxx"></div>
-   <div><label>Link Facebook/fanpage khách <span class="hint">(bắt buộc nếu chưa có SĐT)</span></label><input id="aLink" maxlength="300" placeholder="facebook.com/..."></div>
+   <div><label>SĐT <span id="aSdtReq" class="hint">(chưa có thì để trống, phải có link bên dưới)</span></label><input id="aSdt" placeholder="0xxxxxxxxx" oninput="srcChange()"></div>
+   <div id="dCach" class="hidden"><label>Cách có SĐT <span class="req">*</span></label><select id="aCach"></select></div>
+   <div id="dLink"><label>Link Facebook/fanpage khách <span class="hint">(bắt buộc nếu chưa có SĐT)</span></label><input id="aLink" maxlength="300" placeholder="facebook.com/..."></div>
    <div><label>Sale phụ trách <span class="req">*</span></label><select id="aSale"></select></div>
    <div><label>Giá trị dự kiến (chưa VAT, đồng)</label><input id="aGia" type="number" min="0"></div>
   </div>
@@ -90,28 +91,32 @@ function doLogin(){msg('lm','');call('login',[$('lu').value,$('lp').value],funct
 function after(){if(U.doiMK){view('vPass');return}
   call('layDanhMuc',[T],function(r){DM=r.dm;fill();view('vApp');show('add')})}
 function fill(){function o(id,a,ph){$(id).innerHTML=(ph?'<option value="">'+ph+'</option>':'')+a.map(function(x){return'<option>'+x+'</option>'}).join('')}
-  o('aNguon',DM.nguon,'-- chọn --');o('aSale',DM.sale,'-- chọn --');o('gGd',DM.giaiDoan);
+  o('aNguon',DM.nguon,'-- chọn --');o('aSale',DM.sale,'-- chọn --');o('aCach',DM.cachSdt,'-- chọn --');srcChange();o('gGd',DM.giaiDoan);
   if(U.role==='Sale'){$('aSale').value=U.ten;$('aSale').disabled=true}
   var d=new Date(),s=d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2);$('aNgay').value=s}
+function srcChange(){var n=$('aNguon').value,lk=(DM.nguonLink||[]).indexOf(n)>=0,has=$('aSdt').value.trim()!=='';
+  $('dLink').classList.toggle('hidden',!lk);$('dCach').classList.toggle('hidden',!has);
+  $('aSdtReq').textContent=lk?'(chưa có thì để trống, phải có link)':'(bắt buộc với nguồn này)'}
 function doPass(){call('doiMatKhau',[T,$('pc').value,$('pn').value],function(r){
   if(!r.ok){msg('pm',r.msg);return}$('pc').value='';$('pn').value='';U.doiMK=false;after()})}
 function doLogout(){call('logout',[T],function(){T=null;U=null;try{sessionStorage.removeItem('t')}catch(e){}view('vLogin')})}
 function doAdd(){$('aBtn').disabled=true;msg('am','');
-  call('themLead',[T,{ngayNhan:$('aNgay').value,nguon:$('aNguon').value,ten:$('aTen').value,sdt:$('aSdt').value,link:$('aLink').value,sale:$('aSale').value,
+  call('themLead',[T,{ngayNhan:$('aNgay').value,nguon:$('aNguon').value,ten:$('aTen').value,sdt:$('aSdt').value,link:$('aLink').value,cachSdt:$('aCach').value,sale:$('aSale').value,
    giaTri:$('aGia').value,tomLuoc:$('aTl').value,hanhDong:$('aHd').value,ngayHanhDong:$('aNgayHd').value}],function(r){
    $('aBtn').disabled=false;if(!r.ok){msg('am',r.msg);return}
-   msg('am','Đã lưu. Mã lead: '+r.ma,true);['aTen','aSdt','aLink','aGia','aTl','aHd','aNgayHd'].forEach(function(i){$(i).value=''})})}
+   msg('am','Đã lưu. Mã lead: '+r.ma,true);['aTen','aSdt','aLink','aGia','aTl','aHd','aNgayHd'].forEach(function(i){$(i).value=''});$('aCach').value='';srcChange()})}
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
 function loadList(){call('danhSachLead',[T],function(r){if(!r.ok){msg('lmsg',r.msg);return}LEADS=r.leads;renderList()})}
 function renderList(){var f=$('lFilter').value;
   $('tb').innerHTML=LEADS.map(function(l,i){if(f==='mine'&&l.sale!==U.ten)return'';
-   var own=U.role!=='Sale'||l.sale===U.ten,c=l.sdt?esc(l.sdt):(l.link?'<span class="hint">'+esc(l.link)+'</span>':'');
+   var own=U.role!=='Sale'||l.sale===U.ten,c=l.sdt?esc(l.sdt)+(l.cachSdt?' <span class="hint">('+esc(l.cachSdt)+')</span>':''):(l.link?'<span class="hint">'+esc(l.link)+'</span>':'');
    return'<tr'+(l.uuTien?' style="background:#fff8e1"':'')+'><td>'+esc(l.ma)+(l.uuTien?' <b>★ Ưu tiên</b>':'')+'</td><td>'+esc(l.ngayNhan)+'</td><td>'+esc(l.ten)+'</td><td>'+c+'</td><td>'+esc(l.nguon)+'</td><td>'+esc(l.sale)+'</td><td>'+esc(l.giaiDoan)+'</td><td>'+esc(l.ngayDoiGd)+'</td><td>'+esc(l.hanhDong)+' '+esc(l.ngayHd)+'</td><td>'
    +(own?'<button class="sec" onclick="openGd('+i+')">Đổi GĐ</button> ':'')
    +(own?'<button class="sec" onclick="askSdt('+i+')">'+(l.sdt?'Sửa SĐT':'Cập nhật SĐT')+'</button> ':'')
    +'<button class="sec" onclick="askSale('+i+')">Chuyển Sale</button></td></tr>'}).join('')}
 function askSdt(i){var l=LEADS[i],v=prompt('SĐT mới của '+l.ten+' (0xxxxxxxxx):',l.sdt||'');if(v===null)return;
-  call('capNhatSdt',[T,l.ma,v],function(r){if(!r.ok){msg('lmsg',r.msg);return}msg('lmsg','Đã cập nhật SĐT, lead lên diện ưu tiên.',true);loadList()})}
+  var c=confirm('SĐT này do khách cho?\nOK = Khách cho, Hủy = Mình tự tìm')?'Khách cho':'Mình tự tìm';
+  call('capNhatSdt',[T,l.ma,v,c],function(r){if(!r.ok){msg('lmsg',r.msg);return}msg('lmsg','Đã cập nhật SĐT, lead lên diện ưu tiên.',true);loadList()})}
 function askSale(i){var l=LEADS[i],o=DM.sale.filter(function(x){return x!==l.sale}),v=prompt('Chuyển lead '+l.ma+' ('+l.ten+') từ '+l.sale+' sang ai?\n'+o.join(', '),'');if(!v)return;
   var ly=prompt('Lý do chuyển (có thể bỏ trống):','')||'';
   call('chuyenSale',[T,l.ma,v.trim(),ly],function(r){if(!r.ok){msg('lmsg',r.msg);return}msg('lmsg','Đã chuyển lead sang '+v.trim()+'.',true);loadList()})}

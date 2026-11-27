@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Đất Cảng – Quản lý khách</title>
+<style>
+*{box-sizing:border-box}body{font-family:Arial,sans-serif;margin:0;background:#f4f5f7;color:#222}
+.top{background:#1f3a5f;color:#fff;padding:10px 20px;display:flex;justify-content:space-between;align-items:center}
+.wrap{max-width:1200px;margin:16px auto;padding:0 16px}
+.card{background:#fff;border:1px solid #d9dde3;border-radius:6px;padding:16px;margin-bottom:16px}
+label{display:block;font-size:13px;margin:10px 0 3px;font-weight:bold}
+.req{color:#c00}.hint{font-weight:normal;color:#666}
+input,select,textarea{width:100%;padding:7px;border:1px solid #bbb;border-radius:4px;font-size:14px;font-family:inherit}
+.auto{background:#e8f0e8;color:#444}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:0 16px}
+button{background:#1f3a5f;color:#fff;border:0;padding:8px 16px;border-radius:4px;cursor:pointer;font-size:14px}
+button.sec{background:#fff;color:#1f3a5f;border:1px solid #1f3a5f;padding:4px 8px;font-size:12px;margin:1px}
+button:disabled{opacity:.5}
+table{border-collapse:collapse;width:100%;font-size:13px}th,td{border:1px solid #d9dde3;padding:6px;text-align:left;vertical-align:top}
+th{background:#eef1f5}.msg{margin-top:10px;padding:8px;border-radius:4px}.err{background:#fde8e8;color:#900}.okm{background:#e6f4e6;color:#165}
+.hidden{display:none}.legend span{display:inline-block;padding:2px 8px;margin-right:8px;border:1px solid #bbb;font-size:12px}
+.pri{background:#fff8e1}
+</style></head><body>
+<div class="top"><b>Đất Cảng – Quản lý khách</b><span id="who"></span></div>
+<div class="wrap">
+
+<div id="vLogin" class="card" style="max-width:380px;margin:40px auto">
+ <h3>Đăng nhập</h3>
+ <label>Tên đăng nhập</label><input id="lu" autocomplete="username">
+ <label>Mật khẩu</label><input id="lp" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+ <p><button onclick="doLogin()">Đăng nhập</button></p><div id="lm"></div>
+</div>
+
+<div id="vPass" class="card hidden" style="max-width:420px;margin:40px auto">
+ <h3>Đổi mật khẩu</h3><p class="hint">Bắt buộc ở lần đăng nhập đầu hoặc sau khi admin đặt lại. Tối thiểu 10 ký tự.</p>
+ <label>Mật khẩu hiện tại</label><input id="pc" type="password" autocomplete="current-password">
+ <label>Mật khẩu mới</label><input id="pn" type="password" autocomplete="new-password">
+ <p><button onclick="doPass()">Lưu mật khẩu</button></p><div id="pm"></div>
+</div>
+
+<div id="vApp" class="hidden">
+ <div class="card"><button onclick="show('add')">+ Thêm lead</button> <button class="sec" style="font-size:14px;padding:8px 16px" onclick="show('list')">Danh sách lead</button>
+  <button id="bUsers" class="sec hidden" style="font-size:14px;padding:8px 16px" onclick="show('users')">Tài khoản</button>
+  <button class="sec" onclick="doLogout()" style="float:right;font-size:14px;padding:8px 16px">Đăng xuất</button></div>
+
+ <div id="pAdd" class="card">
+  <h3>Thêm lead</h3>
+  <p class="legend"><span style="background:#fff">Ô trắng: Sale điền</span><span class="auto">Ô xanh: hệ thống tự sinh</span></p>
+  <div class="grid">
+   <div><label>Mã lead</label><input class="auto" value="Tự sinh khi lưu" disabled></div>
+   <div><label>Giai đoạn</label><input class="auto" value="Mới (tự đặt)" disabled></div>
+   <div><label>Ngày nhận <span class="req">*</span></label><input id="aNgay" type="date"></div>
+   <div><label>Nguồn <span class="req">*</span> <span class="hint">(kênh khách đến với mình)</span></label><select id="aNguon" onchange="srcChange()"></select></div>
+   <div><label>Tên khách <span class="req">*</span></label><input id="aTen" maxlength="200"></div>
+   <div><label>SĐT <span id="aSdtReq" class="hint"></span></label><input id="aSdt" placeholder="0xxxxxxxxx" oninput="srcChange()"></div>
+   <div id="dCach" class="hidden"><label>Cách có SĐT <span class="req">*</span></label><select id="aCach"></select></div>
+   <div id="dLink"><label>Link Facebook/fanpage khách <span class="hint">(bắt buộc nếu chưa có SĐT)</span></label><input id="aLink" maxlength="300" placeholder="facebook.com/..."></div>
+   <div><label>Sale phụ trách <span class="req">*</span></label><select id="aSale"></select></div>
+   <div><label>Giá trị dự kiến (chưa VAT, đồng)</label><input id="aGia" type="number" min="0"></div>
+  </div>
+  <label>Tóm lược khách <span class="hint">(ngành hàng, link fanpage, website, nhu cầu...)</span></label><textarea id="aTl" rows="3" maxlength="1000"></textarea>
+  <div class="grid">
+   <div><label>Loại việc tiếp theo <span class="req">*</span></label><select id="aLoai"></select></div>
+   <div><label>Ngày làm việc tiếp theo <span class="req">*</span></label><input id="aNgayHd" type="date"></div>
+  </div>
+  <label>Mô tả việc tiếp theo <span class="hint">(không bắt buộc)</span></label><input id="aHd" maxlength="300">
+  <p><button id="aBtn" onclick="doAdd()">Lưu lead</button></p><div id="am"></div>
+ </div>
+
+ <div id="pList" class="card hidden">
+  <h3>Danh sách lead</h3>
+  <p><label style="display:inline">Hiển thị: </label><select id="lFilter" style="width:auto" onchange="renderList()"><option value="all">Tất cả lead</option><option value="mine">Lead của tôi</option></select>
+   <span class="hint">Lead đã có SĐT (★ Ưu tiên) xếp lên đầu.</span></p>
+  <div id="lmsg"></div>
+  <table><thead><tr><th>Mã</th><th>Ngày nhận</th><th>Khách</th><th>SĐT / Link</th><th>Nguồn</th><th>Sale</th><th>Giai đoạn</th><th>Mức tiềm năng</th><th>Đổi GĐ gần nhất</th><th>Việc tiếp theo</th><th></th></tr></thead><tbody id="tb"></tbody></table>
+ </div>
+
+ <div id="pGd" class="card hidden">
+  <h3>Đổi giai đoạn: <span id="gMa"></span></h3>
+  <div class="grid">
+   <div><label>Giai đoạn mới</label><select id="gGd" onchange="gdChange()"></select></div>
+   <div><label>Mức tiềm năng</label><select id="gMuc"></select></div>
+  </div>
+  <div id="gOpen"><div class="grid">
+   <div><label>Loại việc tiếp theo <span class="req">*</span></label><select id="gLoai"></select></div>
+   <div><label>Ngày làm việc tiếp theo <span class="req">*</span></label><input id="gNgay" type="date"></div></div>
+   <label>Mô tả việc tiếp theo <span class="hint">(không bắt buộc)</span></label><input id="gHd" maxlength="300"></div>
+  <div id="gLost" class="hidden"><label>Lý do <span class="req">*</span></label><select id="gLy"></select></div>
+  <p class="hint">Ngày đổi giai đoạn gần nhất tự ghi khi lưu; mỗi lần đổi được lưu vào lịch sử.</p>
+  <p><button onclick="doGd()">Lưu</button> <button class="sec" onclick="show('list')">Hủy</button></p><div id="gm"></div>
+  <h4>Lịch sử giai đoạn</h4><div id="gHist" class="hint"></div>
+ </div>
+
+ <div id="pUsers" class="card hidden">
+  <h3>Tài khoản</h3><div id="umsg"></div>
+  <table><thead><tr><th>Tên đăng nhập</th><th>Họ tên</th><th>Vai trò</th><th>Trạng thái</th><th></th></tr></thead><tbody id="ub"></tbody></table>
+  <h4>Tạo tài khoản</h4>
+  <div class="grid">
+   <div><label>Tên đăng nhập <span class="hint">(chữ thường, số, _ .)</span></label><input id="nUser"></div>
+   <div><label>Họ tên <span class="hint">(Sale phải trùng tên trong danh mục Sale)</span></label><input id="nTen"></div>
+   <div><label>Vai trò</label><select id="nRole"><option>Sale</option><option>QLDA</option><option>Admin</option></select></div>
+  </div>
+  <p><button onclick="doNewUser()">Tạo và sinh mật khẩu tạm</button></p>
+ </div>
+</div></div>
+
+<script>
+var T=null,U=null,DM=null,LEADS=[],CUR=null,CLOSED=['Đã ký','Mất','Không tiềm năng'],LOSS=['Mất','Không tiềm năng'];
+function $(i){return document.getElementById(i)}
+function msg(id,t,ok){var e=$(id);e.className='msg '+(ok?'okm':'err');e.textContent=t||'';if(!t)e.className=''}
+function call(fn,args,cb){
+  var h={'content-type':'application/json'};if(T)h.authorization='Bearer '+T;
+  fetch('/api/'+fn,{method:'POST',headers:h,body:JSON.stringify(args||{})}).then(function(r){return r.json()}).then(function(r){
+    if(r&&r.expired){T=null;try{sessionStorage.removeItem('t')}catch(e){}view('vLogin');msg('lm',r.msg);return}cb(r)})
+  .catch(function(){alert('Mất kết nối, thử lại.')})}
+function view(v){['vLogin','vPass','vApp'].forEach(function(x){$(x).classList.toggle('hidden',x!==v)});
+  $('who').textContent=U&&v!=='vLogin'?U.ten+' ('+U.role+')':''}
+function show(p){var k=p.charAt(0).toUpperCase()+p.slice(1);['Add','List','Gd','Users'].forEach(function(x){$('p'+x).classList.toggle('hidden',x!==k)});
+  if(k==='List')loadList();if(k==='Users')loadUsers()}
+function doLogin(){msg('lm','');call('login',{username:$('lu').value,password:$('lp').value},function(r){
+  if(!r.ok){msg('lm',r.msg);return}T=r.token;U=r.user;try{sessionStorage.setItem('t',T)}catch(e){}$('lp').value='';after()})}
+function after(){if(U.doiMK){view('vPass');return}
+  call('layDanhMuc',{},function(r){DM=r.dm;fill();$('bUsers').classList.toggle('hidden',U.role!=='Admin');view('vApp');show('add')})}
+function opts(a,ph){return(ph?'<option value="">'+ph+'</option>':'')+a.map(function(x){return'<option>'+esc(x)+'</option>'}).join('')}
+function fill(){
+  $('aNguon').innerHTML=opts(DM.nguon,'-- chọn --');$('aSale').innerHTML=opts(DM.sale,'-- chọn --');$('aCach').innerHTML=opts(DM.cachSdt,'-- chọn --');
+  $('aLoai').innerHTML=opts(DM.loaiViec,'-- chọn --');$('gGd').innerHTML=opts(DM.giaiDoan);$('gMuc').innerHTML=opts(['Chưa phân loại'].concat(DM.mucTiemNang));
+  $('gLoai').innerHTML=opts(DM.loaiViec,'-- chọn --');$('gLy').innerHTML=opts(DM.lyDo,'-- chọn --');
+  if(U.role==='Sale'){$('aSale').value=U.ten;$('aSale').disabled=true}else $('aSale').disabled=false;
+  var d=new Date(),s=d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2);$('aNgay').value=s;srcChange()}
+function srcChange(){var n=$('aNguon').value,lk=(DM.nguonLink||[]).indexOf(n)>=0,has=$('aSdt').value.trim()!=='';
+  $('dLink').classList.toggle('hidden',!lk);$('dCach').classList.toggle('hidden',!has);
+  $('aSdtReq').textContent=lk?'(chưa có thì để trống, phải có link)':'(bắt buộc với nguồn này)'}
+function doPass(){call('doiMatKhau',{cu:$('pc').value,moi:$('pn').value},function(r){
+  if(!r.ok){msg('pm',r.msg);return}$('pc').value='';$('pn').value='';U.doiMK=false;after()})}
+function doLogout(){call('logout',{},function(){T=null;U=null;try{sessionStorage.removeItem('t')}catch(e){}view('vLogin')})}
+function doAdd(){$('aBtn').disabled=true;msg('am','');
+  call('themLead',{ngayNhan:$('aNgay').value,nguon:$('aNguon').value,ten:$('aTen').value,sdt:$('aSdt').value,link:$('aLink').value,cachSdt:$('aCach').value,
+   sale:$('aSale').value,giaTri:$('aGia').value,tomLuoc:$('aTl').value,loaiViec:$('aLoai').value,hanhDong:$('aHd').value,ngayHanhDong:$('aNgayHd').value},function(r){
+   $('aBtn').disabled=false;if(!r.ok){msg('am',r.msg);return}
+   msg('am','Đã lưu. Mã lead: '+r.ma,true);['aTen','aSdt','aLink','aGia','aTl','aHd','aNgayHd'].forEach(function(i){$(i).value=''});$('aCach').value='';srcChange()})}
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+function dmy(s){var m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(s||'');return m?m[3]+'/'+m[2]+'/'+m[1]:(s||'')}
+function dt(ms){if(!ms)return'';var d=new Date(ms+7*3600000),p=function(n){return('0'+n).slice(-2)};return p(d.getUTCDate())+'/'+p(d.getUTCMonth()+1)+'/'+d.getUTCFullYear()+' '+p(d.getUTCHours())+':'+p(d.getUTCMinutes())}
+function loadList(){call('danhSachLead',{},function(r){if(!r.ok){msg('lmsg',r.msg);return}LEADS=r.leads;renderList()})}
+function renderList(){var f=$('lFilter').value;
+  $('tb').innerHTML=LEADS.map(function(l,i){if(f==='mine'&&l.sale!==U.ten)return'';
+   var own=U.role!=='Sale'||l.sale===U.ten,c=l.sdt?esc(l.sdt)+(l.cachSdt?' <span class="hint">('+esc(l.cachSdt)+')</span>':''):(l.link?'<span class="hint">'+esc(l.link)+'</span>':'');
+   return'<tr'+(l.uuTien?' class="pri"':'')+'><td>'+esc(l.ma)+(l.uuTien?' <b>★ Ưu tiên</b>':'')+'</td><td>'+esc(dmy(l.ngayNhan))+'</td><td>'+esc(l.ten)+'</td><td>'+c+'</td><td>'+esc(l.nguon)+'</td><td>'+esc(l.sale)+'</td><td>'+esc(l.giaiDoan)+(l.lyDo?' <span class="hint">('+esc(l.lyDo)+')</span>':'')+'</td><td>'+esc(l.mucTiemNang)+'</td><td>'+esc(dt(l.ngayDoiGd))+'</td><td>'+esc(l.loaiViec)+' '+esc(dmy(l.ngayHd))+'<br><span class="hint">'+esc(l.hanhDong)+'</span></td><td>'
+   +(own?'<button class="sec" onclick="openGd('+i+')">Đổi GĐ</button> ':'')
+   +(own?'<button class="sec" onclick="askSdt('+i+')">'+(l.sdt?'Sửa SĐT':'Cập nhật SĐT')+'</button> ':'')
+   +'<button class="sec" onclick="askSale('+i+')">Chuyển Sale</button></td></tr>'}).join('')}
+function askSdt(i){var l=LEADS[i],v=prompt('SĐT mới của '+l.ten+' (0xxxxxxxxx):',l.sdt||'');if(v===null)return;
+  var c=confirm('SĐT này do khách cho?\nOK = Khách cho, Hủy = Mình tự tìm')?'Khách cho':'Mình tự tìm';
+  call('capNhatSdt',{ma:l.ma,sdt:v,cachSdt:c},function(r){if(!r.ok){msg('lmsg',r.msg);return}msg('lmsg','Đã cập nhật SĐT, lead lên diện ưu tiên.',true);loadList()})}
+function askSale(i){var l=LEADS[i],o=DM.sale.filter(function(x){return x!==l.sale}),v=prompt('Chuyển lead '+l.ma+' ('+l.ten+') từ '+l.sale+' sang ai?\n'+o.join(', '),'');if(!v)return;
+  var ly=prompt('Lý do chuyển (có thể bỏ trống):','')||'';
+  call('chuyenSale',{ma:l.ma,saleMoi:v.trim(),lyDo:ly},function(r){if(!r.ok){msg('lmsg',r.msg);return}msg('lmsg','Đã chuyển lead sang '+v.trim()+'.',true);loadList()})}
+function openGd(i){CUR=LEADS[i];$('gMa').textContent=CUR.ma;$('gGd').value=CUR.giaiDoan;$('gMuc').value=CUR.mucTiemNang;gdChange();msg('gm','');show('Gd');
+  $('gHist').textContent='Đang tải...';
+  call('lichSu',{ma:CUR.ma},function(r){$('gHist').innerHTML=r.ls&&r.ls.length?r.ls.map(function(h){return esc(dt(h.luc))+': '+esc(h.tu)+' → '+esc(h.den)+' ('+esc(h.boi)+')'}).join('<br>'):'Chưa có lần đổi nào.'})}
+function gdChange(){var g=$('gGd').value;$('gOpen').classList.toggle('hidden',CLOSED.indexOf(g)>=0);$('gLost').classList.toggle('hidden',LOSS.indexOf(g)<0)}
+function doGd(){call('doiGiaiDoan',{ma:CUR.ma,giaiDoan:$('gGd').value,mucTiemNang:$('gMuc').value,lyDo:$('gLy').value,loaiViec:$('gLoai').value,hanhDong:$('gHd').value,ngayHanhDong:$('gNgay').value},function(r){
+  if(!r.ok){msg('gm',r.msg);return}show('list')})}
+function loadUsers(){call('danhSachTaiKhoan',{},function(r){if(!r.ok){msg('umsg',r.msg);return}
+  $('ub').innerHTML=r.users.map(function(u){return'<tr><td>'+esc(u.username)+'</td><td>'+esc(u.ten)+'</td><td>'+esc(u.role)+'</td><td>'+(u.active?'Hoạt động':'Đã tắt')+'</td><td>'+
+   '<button class="sec" onclick="resetPw(\''+esc(u.username)+'\')">Đặt lại mật khẩu</button> <button class="sec" onclick="toggleUser(\''+esc(u.username)+'\','+(u.active?0:1)+')">'+(u.active?'Tắt':'Bật')+'</button></td></tr>'}).join('')})}
+function resetPw(u){if(!confirm('Đặt lại mật khẩu của '+u+'?'))return;call('datLaiMatKhau',{username:u},function(r){msg('umsg',r.ok?'Mật khẩu tạm của '+u+': '+r.matKhauTam+' (chỉ hiện một lần, gửi riêng cho người đó)':r.msg,r.ok)})}
+function toggleUser(u,on){call('tatTaiKhoan',{username:u,bat:on},function(r){if(!r.ok){msg('umsg',r.msg);return}loadUsers()})}
+function doNewUser(){call('taoTaiKhoan',{username:$('nUser').value,ten:$('nTen').value,role:$('nRole').value},function(r){
+  if(!r.ok){msg('umsg',r.msg);return}msg('umsg','Đã tạo. Mật khẩu tạm: '+r.matKhauTam+' (chỉ hiện một lần, gửi riêng cho người đó)',true);$('nUser').value='';$('nTen').value='';loadUsers()})}
+(function(){var t=null;try{t=sessionStorage.getItem('t')}catch(e){}if(t){T=t;call('phien',{},function(r){if(r.ok){U=r.user;after()}})}})();
+</script></body></html>

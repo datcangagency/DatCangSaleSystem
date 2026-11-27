@@ -1,0 +1,7 @@
+{
+  "name": "dat-cang-sale",
+  "main": "src/index.js",
+  "compatibility_date": "2026-11-01",
+  "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": ["/api/*"] },
+  "d1_databases": [{ "binding": "DB", "database_name": "dat-cang-sale-db", "migrations_dir": "migrations" }]
+}

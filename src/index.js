@@ -300,6 +300,21 @@ const API = {
   },
 
   // ---- quan tri ----
+  async saoLuu(env, req, a) {
+    // Admin: xuat toan bo du lieu thanh file SQL (INSERT) de luu local. Khong gom phien dang nhap.
+    const T = ['users', 'catalog', 'counters', 'leads', 'stage_history', 'audit'];
+    const q = v => v === null || v === undefined ? 'NULL' : typeof v === 'number' ? String(v) : "'" + String(v).replace(/'/g, "''") + "'";
+    const out = ['-- Dat Cang Sale - ban sao luu ' + new Date().toISOString(), '-- Khoi phuc: chay file nay tren D1 trong sau khi chay migrations (bang rong). CHUA PII khach + mat khau da bam.'];
+    const dem = {};
+    out.push('DELETE FROM catalog; -- migrations da nap danh muc mac dinh; xoa de nap lai dung ban sao luu');
+    for (const t of T) {
+      const { results } = await env.DB.prepare('SELECT * FROM ' + t).all();
+      dem[t] = results.length;
+      for (const r of results) { const k = Object.keys(r); out.push('INSERT INTO ' + t + '(' + k.join(',') + ') VALUES(' + k.map(c => q(r[c])).join(',') + ');'); }
+    }
+    await env.DB.batch([logStmt(env, a.username, 'SAO_LUU', '', JSON.stringify(dem))]);
+    return { ok: true, sql: out.join('\n') + '\n', dem };
+  },
   async danhSachTaiKhoan(env) {
     const { results } = await env.DB.prepare('SELECT username, ten, role, active, must_change, locked_until FROM users ORDER BY role, username').all();
     return { ok: true, users: results };
@@ -344,7 +359,7 @@ const API = {
 const PERM = {
   login: 'public', phien: 'public', logout: 'public', doiMatKhau: 'auth', layDanhMuc: 'use',
   themLead: 'use', danhSachLead: 'use', doiGiaiDoan: 'use', capNhatSdt: 'use', chuyenSale: 'use', lichSu: 'use', chiTietLead: 'use', baoCao: 'use',
-  danhSachTaiKhoan: 'admin', taoTaiKhoan: 'admin', datLaiMatKhau: 'admin', tatTaiKhoan: 'admin',
+  danhSachTaiKhoan: 'admin', taoTaiKhoan: 'admin', datLaiMatKhau: 'admin', tatTaiKhoan: 'admin', saoLuu: 'admin',
 };
 
 async function khoiTao(env, req) {

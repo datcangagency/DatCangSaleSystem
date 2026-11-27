@@ -111,6 +111,9 @@ th{background:#eef1f5}.msg{margin-top:10px;padding:8px;border-radius:4px}.err{ba
  </div>
 
  <div id="pUsers" class="card hidden">
+  <h3>Sao lưu dữ liệu</h3>
+  <p class="hint">Tải toàn bộ dữ liệu (khách, lịch sử, tài khoản, nhật ký) về máy dưới dạng file SQL. File chứa thông tin khách: chỉ lưu trên máy, không đưa lên GitHub/Drive. Nên tải mỗi tuần.</p>
+  <p><button onclick="backupNow()">Tải bản sao lưu</button> <span id="bkmsg"></span></p>
   <h3>Tài khoản</h3><div id="umsg"></div>
   <table><thead><tr><th>Tên đăng nhập</th><th>Họ tên</th><th>Vai trò</th><th>Trạng thái</th><th></th></tr></thead><tbody id="ub"></tbody></table>
   <h4>Tạo tài khoản</h4>
@@ -161,6 +164,10 @@ function doAdd(){$('aBtn').disabled=true;msg('am','');
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
 function dmy(s){var m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(s||'');return m?m[3]+'/'+m[2]+'/'+m[1]:(s||'')}
 function dt(ms){if(!ms)return'';var d=new Date(ms+7*3600000),p=function(n){return('0'+n).slice(-2)};return p(d.getUTCDate())+'/'+p(d.getUTCMonth()+1)+'/'+d.getUTCFullYear()+' '+p(d.getUTCHours())+':'+p(d.getUTCMinutes())}
+function backupNow(){msg('bkmsg','Đang tạo bản sao lưu...',true);call('saoLuu',{},function(r){if(!r.ok){msg('bkmsg',r.msg);return}
+  var b=new Blob([r.sql],{type:'application/sql;charset=utf-8'}),a=document.createElement('a'),d=new Date(Date.now()+7*3600000).toISOString().replace(/[:T]/g,'-').slice(0,16);
+  a.href=URL.createObjectURL(b);a.download='DatCang_SaoLuu_'+d+'.sql';document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},500);
+  msg('bkmsg','Đã tải: '+r.dem.leads+' khách, '+r.dem.stage_history+' lịch sử, '+r.dem.users+' tài khoản.',true)})}
 function csvCell(v){if(v&&v.raw)return'"'+v.raw.replace(/"/g,'""')+'"';var s=String(v==null?'':v);if(/^[=+\-@\t\r]/.test(s))s="'"+s;return'"'+s.replace(/"/g,'""')+'"'}
 function exportCsv(){var f=$('lFilter').value,H=['Mã','Ngày nhận','Khách','SĐT','Cách có SĐT','Link','Nguồn','Sale','Giai đoạn','Lý do mất/không tiềm năng','Mức tiềm năng','Ưu tiên','Đổi GĐ gần nhất','Loại việc tiếp theo','Ngày hành động','Mô tả việc tiếp theo','Giá trị dự kiến','Tóm lược','Ghi chú'];
   var rows=LEADS.filter(function(l){return f!=='mine'||l.sale===U.ten}).map(function(l){return[l.ma,dmy(l.ngayNhan),l.ten,l.sdt?{raw:'="'+l.sdt.replace(/[^0-9]/g,'')+'"'}:'',l.cachSdt,l.link,l.nguon,l.sale,l.giaiDoan,l.lyDo,l.mucTiemNang,l.uuTien?'Có':'',dt(l.ngayDoiGd),l.loaiViec,dmy(l.ngayHd),l.hanhDong,l.giaTri==null?'':l.giaTri,l.tomLuoc,l.ghiChu]});

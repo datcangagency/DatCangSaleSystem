@@ -51,6 +51,13 @@ function normPhone_(s) {
   if (/^84\d{9}$/.test(d)) d = '0' + d.slice(2);
   return /^0\d{9,10}$/.test(d) ? d : null;
 }
+function phoneKey_(v) {        // Trang tinh co the doi SDT thanh so va mat so 0 dau: so sanh theo chu so, bo so 0 dau
+  return String(v === null || v === undefined ? '' : v).replace(/\D/g, '').replace(/^0+/, '');
+}
+function phoneShow_(v) {
+  var k = phoneKey_(v);
+  return k ? '0' + k : '';
+}
 function hash_(pass, salt) {
   var h = String(pass);
   for (var i = 0; i < HASH_ROUNDS; i++) {
@@ -186,7 +193,7 @@ function themLead(token, d) {
     try {
       var s = sh_('Lead'), data = s.getDataRange().getValues();
       for (var i = 1; i < data.length; i++) {
-        if (String(data[i][3]) === sdt) return { ok: false, msg: 'SĐT đã có trong hệ thống: ' + data[i][0] + ', Sale ' + data[i][5] + ', giai đoạn ' + data[i][6] + '.' };
+        if (phoneKey_(data[i][3]) === phoneKey_(sdt)) return { ok: false, msg: 'SĐT đã có trong hệ thống: ' + data[i][0] + ', Sale ' + data[i][5] + ', giai đoạn ' + data[i][6] + '.' };
       }
       var key = 'L-' + fmt_(now_(), 'yyMM');
       var cs = sh_('Bộ đếm'), cd = cs.getDataRange().getValues(), n = 0, crow = -1;
@@ -197,13 +204,14 @@ function themLead(token, d) {
       var t = now_();
       s.appendRow([ma, ngayNhan, safe_(ten), sdt, d.nguon, sale, 'Mới', t, safe_(tl), safe_(hd), ngayHd,
         gia, '', '', t, a.ten, t]);
+      s.getRange(s.getLastRow(), 4).setNumberFormat('@').setValue(sdt);   // giu so 0 dau
       log_(a.username, 'THEM_LEAD', ma, 'Sale ' + sale);
       return { ok: true, ma: ma };
     } finally { lock.releaseLock(); }
   });
 }
 function rowToLead_(r) {
-  return { ma: r[0], ngayNhan: fmtDate_(r[1]), ten: r[2], sdt: r[3], nguon: r[4], sale: r[5], giaiDoan: r[6],
+  return { ma: r[0], ngayNhan: fmtDate_(r[1]), ten: r[2], sdt: phoneShow_(r[3]), nguon: r[4], sale: r[5], giaiDoan: r[6],
     ngayDoiGd: fmtDate_(r[7]), tomLuoc: r[8], hanhDong: r[9], ngayHd: fmtDate_(r[10]), giaTri: r[11], lyDoMat: r[12] };
 }
 function danhSachLead(token) {

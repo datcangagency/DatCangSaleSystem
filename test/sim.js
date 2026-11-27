@@ -6,8 +6,9 @@ const tabs={'Tài khoản':[['Tên đăng nhập','Họ tên','Vai trò','Salt',
 function mkSheet(n){const g=()=>tabs[n];return{
  getDataRange:()=>({getValues:()=>g().map(r=>r.slice())}),
  appendRow:r=>g().push(r.slice()),
+ getLastRow:()=>g().length,
  getRange:(r,c,nr=1,nc=1)=>({setValues:v=>{for(let i=0;i<nr;i++)for(let j=0;j<nc;j++){while(g().length<r+i)g().push([]);g()[r-1+i][c-1+j]=v[i][j]}},
-  setValue:v=>{g()[r-1][c-1]=v}})}}
+  setValue:function(v){g()[r-1][c-1]=v;return this},setNumberFormat:function(){return this}})}}
 const store={};
 const ctx={Logger:{log:()=>{}},
  SpreadsheetApp:{openById:()=>({getSheetByName:n=>tabs[n]?mkSheet(n):null})},

@@ -81,7 +81,7 @@ async function newSession(env, username) {
 const leadOut = (r) => ({
   ma: r.ma, ngayNhan: r.ngay_nhan, ten: r.ten, sdt: r.sdt, link: r.link, nguon: r.nguon, cachSdt: r.cach_sdt, sale: r.sale,
   giaiDoan: r.giai_doan, ngayDoiGd: r.ngay_doi_gd, mucTiemNang: r.muc_tiem_nang, tomLuoc: r.tom_luoc, loaiViec: r.loai_viec,
-  hanhDong: r.hanh_dong, ngayHd: r.ngay_hd, giaTri: r.gia_tri, lyDo: r.ly_do, uuTien: !!r.uu_tien,
+  hanhDong: r.hanh_dong, ngayHd: r.ngay_hd, giaTri: r.gia_tri, lyDo: r.ly_do, ghiChu: r.ghi_chu, uuTien: !!r.uu_tien,
 });
 
 async function findDup(env, sdt, linkKey, exceptMa) {
@@ -131,7 +131,7 @@ const API = {
   async themLead(env, req, a, d) {
     const dm = await catalog(env);
     const useLink = dm.nguonLink.includes(String(d.nguon));
-    const ten = String(d.ten || '').trim(), tl = String(d.tomLuoc || '').trim(), hd = String(d.hanhDong || '').trim();
+    const ten = String(d.ten || '').trim(), tl = String(d.tomLuoc || '').trim(), gc = String(d.ghiChu || '').trim(), hd = String(d.hanhDong || '').trim();
     const rawSdt = String(d.sdt || '').trim(), sdt = rawSdt ? normPhone(rawSdt) : '';
     const rawLink = useLink ? String(d.link || '').trim() : '', linkKey = rawLink ? normLink(rawLink) : '';
     let cach = String(d.cachSdt || '').trim();
@@ -152,6 +152,7 @@ const API = {
     if (!dm.loaiViec.includes(String(d.loaiViec))) e.push('Chọn loại việc tiếp theo.');
     if (hd.length > 300) e.push('Mô tả việc tiếp theo tối đa 300 ký tự.');
     if (tl.length > 1000) e.push('Tóm lược tối đa 1000 ký tự.');
+    if (gc.length > 500) e.push('Ghi chú tối đa 500 ký tự.');
     if (!validDate(d.ngayHanhDong)) e.push('Ngày hành động không hợp lệ.');
     else if (validDate(d.ngayNhan) && d.ngayHanhDong < d.ngayNhan) e.push('Ngày hành động không được trước ngày nhận.');
     if (gia !== null && (isNaN(gia) || gia < 0)) e.push('Giá trị dự kiến phải là số không âm.');
@@ -164,9 +165,9 @@ const API = {
     try {
       await env.DB.batch([
         env.DB.prepare(
-          `INSERT INTO leads(ma,ngay_nhan,ten,sdt,link,link_key,nguon,cach_sdt,sale,giai_doan,ngay_doi_gd,muc_tiem_nang,tom_luoc,loai_viec,hanh_dong,ngay_hd,gia_tri,uu_tien,ngay_co_sdt,tao_luc,sua_boi,sua_luc)
-           VALUES(?,?,?,?,?,?,?,?,?,'Mới',?,'Chưa phân loại',?,?,?,?,?,?,?,?,?,?)`
-        ).bind(ma, d.ngayNhan, safe(ten), sdt, safe(rawLink), linkKey, d.nguon, cach, sale, t, safe(tl), d.loaiViec, safe(hd), d.ngayHanhDong, gia, sdt ? 1 : 0, sdt ? t : null, t, a.ten, t),
+          `INSERT INTO leads(ma,ngay_nhan,ten,sdt,link,link_key,nguon,cach_sdt,sale,giai_doan,ngay_doi_gd,muc_tiem_nang,tom_luoc,loai_viec,hanh_dong,ngay_hd,gia_tri,ghi_chu,uu_tien,ngay_co_sdt,tao_luc,sua_boi,sua_luc)
+           VALUES(?,?,?,?,?,?,?,?,?,'Mới',?,'Chưa phân loại',?,?,?,?,?,?,?,?,?,?,?)`
+        ).bind(ma, d.ngayNhan, safe(ten), sdt, safe(rawLink), linkKey, d.nguon, cach, sale, t, safe(tl), d.loaiViec, safe(hd), d.ngayHanhDong, gia, safe(gc), sdt ? 1 : 0, sdt ? t : null, t, a.ten, t),
         logStmt(env, a.username, 'THEM_LEAD', ma, `Sale ${sale}${sdt ? ', co SDT' : ', chua co SDT'}`),
       ]);
     } catch (err) { if (/UNIQUE/i.test(String(err))) return fail('Lead đã có trong hệ thống (SĐT hoặc link trùng).'); throw err; }

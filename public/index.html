@@ -57,6 +57,7 @@ th{background:#eef1f5}.msg{margin-top:10px;padding:8px;border-radius:4px}.err{ba
    <div><label>Giá trị dự kiến (chưa VAT, đồng)</label><input id="aGia" type="number" min="0"></div>
   </div>
   <label>Tóm lược khách <span class="hint">(ngành hàng, link fanpage, website, nhu cầu...)</span></label><textarea id="aTl" rows="3" maxlength="1000"></textarea>
+  <label>Ghi chú <span class="hint">(tùy chọn, tối đa 500 ký tự)</span></label><textarea id="aGc" rows="2" maxlength="500"></textarea>
   <div class="grid">
    <div><label>Loại việc tiếp theo <span class="req">*</span></label><select id="aLoai"></select></div>
    <div><label>Ngày làm việc tiếp theo <span class="req">*</span></label><input id="aNgayHd" type="date"></div>
@@ -134,9 +135,9 @@ function doPass(){call('doiMatKhau',{cu:$('pc').value,moi:$('pn').value},functio
 function doLogout(){call('logout',{},function(){T=null;U=null;try{sessionStorage.removeItem('t')}catch(e){}view('vLogin')})}
 function doAdd(){$('aBtn').disabled=true;msg('am','');
   call('themLead',{ngayNhan:$('aNgay').value,nguon:$('aNguon').value,ten:$('aTen').value,sdt:$('aSdt').value,link:$('aLink').value,cachSdt:$('aCach').value,
-   sale:$('aSale').value,giaTri:$('aGia').value,tomLuoc:$('aTl').value,loaiViec:$('aLoai').value,hanhDong:$('aHd').value,ngayHanhDong:$('aNgayHd').value},function(r){
+   sale:$('aSale').value,giaTri:$('aGia').value,tomLuoc:$('aTl').value,ghiChu:$('aGc').value,loaiViec:$('aLoai').value,hanhDong:$('aHd').value,ngayHanhDong:$('aNgayHd').value},function(r){
    $('aBtn').disabled=false;if(!r.ok){msg('am',r.msg);return}
-   msg('am','Đã lưu. Mã lead: '+r.ma,true);['aTen','aSdt','aLink','aGia','aTl','aHd','aNgayHd'].forEach(function(i){$(i).value=''});$('aCach').value='';srcChange()})}
+   msg('am','Đã lưu. Mã lead: '+r.ma,true);['aTen','aSdt','aLink','aGia','aTl','aGc','aHd','aNgayHd'].forEach(function(i){$(i).value=''});$('aCach').value='';srcChange()})}
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
 function dmy(s){var m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(s||'');return m?m[3]+'/'+m[2]+'/'+m[1]:(s||'')}
 function dt(ms){if(!ms)return'';var d=new Date(ms+7*3600000),p=function(n){return('0'+n).slice(-2)};return p(d.getUTCDate())+'/'+p(d.getUTCMonth()+1)+'/'+d.getUTCFullYear()+' '+p(d.getUTCHours())+':'+p(d.getUTCMinutes())}
@@ -144,7 +145,7 @@ function loadList(){call('danhSachLead',{},function(r){if(!r.ok){msg('lmsg',r.ms
 function renderList(){var f=$('lFilter').value;
   $('tb').innerHTML=LEADS.map(function(l,i){if(f==='mine'&&l.sale!==U.ten)return'';
    var own=U.role!=='Sale'||l.sale===U.ten,c=l.sdt?esc(l.sdt)+(l.cachSdt?' <span class="hint">('+esc(l.cachSdt)+')</span>':''):(l.link?'<span class="hint">'+esc(l.link)+'</span>':'');
-   return'<tr'+(l.uuTien?' class="pri"':'')+'><td>'+esc(l.ma)+(l.uuTien?' <b>★ Ưu tiên</b>':'')+'</td><td>'+esc(dmy(l.ngayNhan))+'</td><td>'+esc(l.ten)+'</td><td>'+c+'</td><td>'+esc(l.nguon)+'</td><td>'+esc(l.sale)+'</td><td>'+esc(l.giaiDoan)+(l.lyDo?' <span class="hint">('+esc(l.lyDo)+')</span>':'')+'</td><td>'+esc(l.mucTiemNang)+'</td><td>'+esc(dt(l.ngayDoiGd))+'</td><td>'+esc(l.loaiViec)+' '+esc(dmy(l.ngayHd))+'<br><span class="hint">'+esc(l.hanhDong)+'</span></td><td>'
+   return'<tr'+(l.uuTien?' class="pri"':'')+'><td>'+esc(l.ma)+(l.uuTien?' <b>★ Ưu tiên</b>':'')+'</td><td>'+esc(dmy(l.ngayNhan))+'</td><td>'+esc(l.ten)+'</td><td>'+c+'</td><td>'+esc(l.nguon)+'</td><td>'+esc(l.sale)+'</td><td>'+esc(l.giaiDoan)+(l.lyDo?' <span class="hint">('+esc(l.lyDo)+')</span>':'')+'</td><td>'+esc(l.mucTiemNang)+'</td><td>'+esc(dt(l.ngayDoiGd))+'</td><td>'+esc(l.loaiViec)+' '+esc(dmy(l.ngayHd))+'<br><span class="hint">'+esc(l.hanhDong)+'</span>'+(l.ghiChu?'<br><span class="hint">Ghi chú: '+esc(l.ghiChu)+'</span>':'')+'</td><td>'
    +(own?'<button class="sec" onclick="openGd('+i+')">Đổi GĐ</button> ':'')
    +(own?'<button class="sec" onclick="askSdt('+i+')">'+(l.sdt?'Sửa SĐT':'Cập nhật SĐT')+'</button> ':'')
    +'<button class="sec" onclick="askSale('+i+')">Chuyển Sale</button></td></tr>'}).join('')}

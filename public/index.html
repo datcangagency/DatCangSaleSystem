@@ -69,7 +69,7 @@ th{background:#eef1f5}.msg{margin-top:10px;padding:8px;border-radius:4px}.err{ba
  <div id="pList" class="card hidden">
   <h3>Danh sách lead</h3>
   <p><label style="display:inline">Hiển thị: </label><select id="lFilter" style="width:auto" onchange="renderList()"><option value="all">Tất cả lead</option><option value="mine">Lead của tôi</option></select>
-   <span class="hint">Lead đã có SĐT (★ Ưu tiên) xếp lên đầu.</span></p>
+   <span class="hint">Lead đã có SĐT (★ Ưu tiên) xếp lên đầu.</span> <button class="sec" onclick="exportCsv()">Xuất file Excel (CSV)</button></p>
   <div id="lmsg"></div>
   <table><thead><tr><th>Mã</th><th>Ngày nhận</th><th>Khách</th><th>SĐT / Link</th><th>Nguồn</th><th>Sale</th><th>Giai đoạn</th><th>Mức tiềm năng</th><th>Đổi GĐ gần nhất</th><th>Việc tiếp theo</th><th></th></tr></thead><tbody id="tb"></tbody></table>
  </div>
@@ -141,6 +141,13 @@ function doAdd(){$('aBtn').disabled=true;msg('am','');
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
 function dmy(s){var m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(s||'');return m?m[3]+'/'+m[2]+'/'+m[1]:(s||'')}
 function dt(ms){if(!ms)return'';var d=new Date(ms+7*3600000),p=function(n){return('0'+n).slice(-2)};return p(d.getUTCDate())+'/'+p(d.getUTCMonth()+1)+'/'+d.getUTCFullYear()+' '+p(d.getUTCHours())+':'+p(d.getUTCMinutes())}
+function csvCell(v){if(v&&v.raw)return'"'+v.raw.replace(/"/g,'""')+'"';var s=String(v==null?'':v);if(/^[=+\-@\t\r]/.test(s))s="'"+s;return'"'+s.replace(/"/g,'""')+'"'}
+function exportCsv(){var f=$('lFilter').value,H=['Mã','Ngày nhận','Khách','SĐT','Cách có SĐT','Link','Nguồn','Sale','Giai đoạn','Lý do mất/không tiềm năng','Mức tiềm năng','Ưu tiên','Đổi GĐ gần nhất','Loại việc tiếp theo','Ngày hành động','Mô tả việc tiếp theo','Giá trị dự kiến','Tóm lược','Ghi chú'];
+  var rows=LEADS.filter(function(l){return f!=='mine'||l.sale===U.ten}).map(function(l){return[l.ma,dmy(l.ngayNhan),l.ten,l.sdt?{raw:'="'+l.sdt.replace(/[^0-9]/g,'')+'"'}:'',l.cachSdt,l.link,l.nguon,l.sale,l.giaiDoan,l.lyDo,l.mucTiemNang,l.uuTien?'Có':'',dt(l.ngayDoiGd),l.loaiViec,dmy(l.ngayHd),l.hanhDong,l.giaTri==null?'':l.giaTri,l.tomLuoc,l.ghiChu]});
+  if(!rows.length){msg('lmsg','Không có lead để xuất.');return}
+  var out='sep=,\r\n'+[H].concat(rows).map(function(r){return r.map(csvCell).join(',')}).join('\r\n');
+  var b=new Blob(['﻿'+out],{type:'text/csv;charset=utf-8'}),a=document.createElement('a'),d=new Date(Date.now()+7*3600000).toISOString().slice(0,10);
+  a.href=URL.createObjectURL(b);a.download='DatCang_Lead_'+d+'.csv';document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},500);msg('lmsg','Đã xuất '+rows.length+' lead.',true)}
 function loadList(){call('danhSachLead',{},function(r){if(!r.ok){msg('lmsg',r.msg);return}LEADS=r.leads;renderList()})}
 function renderList(){var f=$('lFilter').value;
   $('tb').innerHTML=LEADS.map(function(l,i){if(f==='mine'&&l.sale!==U.ten)return'';

@@ -299,6 +299,75 @@ const API = {
       lyDo: Object.entries(map(ld)).map(([k, c]) => ({ k, c })), cachSdt: Object.entries(map(cs)).map(([k, c]) => ({ k, c })), quaHan, homNay: today };
   },
 
+  async thongKe(env, req, a, d) {
+    // Dashboard lead theo ngay / tuan (T2-CN) / thang, gio Viet Nam. Ky tinh theo thoi diem doi sang "Da ky".
+    const kieu = ['ngay', 'tuan', 'thang'].includes(d.kieu) ? d.kieu : 'tuan';
+    const today = bkk().toISOString().slice(0, 10);
+    const A = /^\d{4}-\d{2}-\d{2}$/.test(String(d.den || '')) && !isNaN(Date.parse(d.den + 'T00:00:00Z')) ? String(d.den) : today;
+    const iso = (t) => new Date(t).toISOString().slice(0, 10), U = (s) => Date.parse(s + 'T00:00:00Z'), DAY = 86400000;
+    const per = (anchor) => { const t0 = U(anchor);
+      if (kieu === 'ngay') return { t: anchor, e: anchor };
+      if (kieu === 'tuan') { const dow = (new Date(t0).getUTCDay() + 6) % 7; return { t: iso(t0 - dow * DAY), e: iso(t0 - dow * DAY + 6 * DAY) }; }
+      const x = new Date(t0); return { t: iso(Date.UTC(x.getUTCFullYear(), x.getUTCMonth(), 1)), e: iso(Date.UTC(x.getUTCFullYear(), x.getUTCMonth() + 1, 0)) }; };
+    const prevOf = (p) => { const t0 = U(p.t);
+      if (kieu === 'ngay') return per(iso(t0 - DAY)); if (kieu === 'tuan') return per(iso(t0 - 7 * DAY));
+      return per(iso(t0 - DAY)); };
+    const cur = per(A); const bk = [cur]; const nB = kieu === 'ngay' ? 14 : 12;
+    while (bk.length < nB) bk.unshift(prevOf(bk[0]));
+    const lab = (p) => kieu === 'ngay' ? p.t.slice(8) + '/' + p.t.slice(5, 7) : kieu === 'tuan' ? p.t.slice(8) + '/' + p.t.slice(5, 7) : p.t.slice(5, 7) + '/' + p.t.slice(2, 4);
+    const T0 = bk[0].t, T1 = bk[bk.length - 1].e, ms0 = U(T0) - 7 * 3600000, ms1 = U(T1) + DAY - 7 * 3600000;
+    const R = cur, P = bk[bk.length - 2], msR = [U(R.t) - 7 * 3600000, U(R.e) + DAY - 7 * 3600000];
+    const q = (sql, ...b) => env.DB.prepare(sql).bind(...b), ph = CLOSED.map(() => '?').join(',');
+    const [nd, sd, kd, gd, reach, ng, slc, slo, ld, mt, qh, hot, dm0] = await env.DB.batch([
+      q('SELECT ngay_nhan AS d, COUNT(*) AS c FROM leads WHERE ngay_nhan >= ? AND ngay_nhan <= ? GROUP BY ngay_nhan', T0, T1),
+      q("SELECT date(ngay_co_sdt/1000 + 25200, 'unixepoch') AS d, COUNT(*) AS c FROM leads WHERE ngay_co_sdt >= ? AND ngay_co_sdt < ? GROUP BY d", ms0, ms1),
+      q("SELECT date(luc/1000 + 25200, 'unixepoch') AS d, COUNT(DISTINCT ma) AS c FROM stage_history WHERE den = 'Đã ký' AND luc >= ? AND luc < ? GROUP BY d", ms0, ms1),
+      q('SELECT giai_doan AS k, COUNT(*) AS c FROM leads WHERE ngay_nhan >= ? AND ngay_nhan <= ? GROUP BY giai_doan', R.t, R.e),
+      q('SELECT h.den AS k, COUNT(DISTINCT h.ma) AS c FROM stage_history h JOIN leads l ON l.ma = h.ma WHERE l.ngay_nhan >= ? AND l.ngay_nhan <= ? GROUP BY h.den', R.t, R.e),
+      q("SELECT nguon AS k, COUNT(*) AS nhan, SUM(sdt <> '') AS sdt, SUM(giai_doan = 'Đã ký') AS ky, SUM(giai_doan IN ('Mất','Không tiềm năng')) AS dong FROM leads WHERE ngay_nhan >= ? AND ngay_nhan <= ? GROUP BY nguon", R.t, R.e),
+      q("SELECT sale AS k, COUNT(*) AS nhan, SUM(sdt <> '') AS sdt, SUM(giai_doan = 'Đã ký') AS ky FROM leads WHERE ngay_nhan >= ? AND ngay_nhan <= ? GROUP BY sale", R.t, R.e),
+      q(`SELECT sale AS k, SUM(giai_doan NOT IN (${ph})) AS mo, SUM(giai_doan NOT IN (${ph}) AND ngay_hd <> '' AND ngay_hd < ?) AS qh, SUM(giai_doan NOT IN (${ph}) AND ngay_hd = '') AS kv FROM leads GROUP BY sale`, ...CLOSED, ...CLOSED, today, ...CLOSED),
+      q("SELECT ly_do AS k, COUNT(*) AS c FROM leads WHERE giai_doan IN ('Mất','Không tiềm năng') AND ngay_doi_gd >= ? AND ngay_doi_gd < ? GROUP BY ly_do", msR[0], msR[1]),
+      q('SELECT muc_tiem_nang AS k, COUNT(*) AS c FROM leads WHERE ngay_nhan >= ? AND ngay_nhan <= ? GROUP BY muc_tiem_nang', R.t, R.e),
+      q(`SELECT ma, ten, sale, giai_doan, loai_viec, hanh_dong, ngay_hd FROM leads WHERE giai_doan NOT IN (${ph}) AND ngay_hd <> '' AND ngay_hd < ? ORDER BY ngay_hd LIMIT 30`, ...CLOSED, today),
+      q(`SELECT ma, ten, sale, giai_doan, uu_tien, ngay_hd FROM leads WHERE giai_doan NOT IN (${ph}) AND muc_tiem_nang = 'Tiềm năng' ORDER BY uu_tien DESC, tao_luc DESC LIMIT 10`, ...CLOSED),
+      q(`SELECT COUNT(*) AS c FROM leads WHERE giai_doan NOT IN (${ph})`, ...CLOSED),
+    ]);
+    const mp = (x) => Object.fromEntries(x.results.map((r) => [r.d, r.c]));
+    const N = mp(nd), S = mp(sd), K = mp(kd);
+    const sum = (m, p) => { let t = 0; for (let x = U(p.t); x <= U(p.e); x += DAY) t += m[iso(x)] || 0; return t; };
+    const xuong = bk.map((p) => ({ nhan: sum(N, p), sdt: sum(S, p), ky: sum(K, p), nhan_l: lab(p), t: p.t, e: p.e }));
+    const C = xuong[xuong.length - 1], Pv = xuong[xuong.length - 2];
+    const dmc = await catalog(env);
+    const gdM = Object.fromEntries(gd.results.map((r) => [r.k, r.c])), rcM = Object.fromEntries(reach.results.map((r) => [r.k, r.c]));
+    const ngM = Object.fromEntries(ng.results.map((r) => [r.k, r])), slcM = Object.fromEntries(slc.results.map((r) => [r.k, r])), sloM = Object.fromEntries(slo.results.map((r) => [r.k, r]));
+    const nguon = dmc.nguon.map((k) => ({ k, nhan: ngM[k]?.nhan || 0, sdt: ngM[k]?.sdt || 0, ky: ngM[k]?.ky || 0, dong: ngM[k]?.dong || 0 }));
+    const sale = dmc.sale.map((k) => ({ k, nhan: slcM[k]?.nhan || 0, sdt: slcM[k]?.sdt || 0, ky: slcM[k]?.ky || 0, mo: sloM[k]?.mo || 0, quaHan: sloM[k]?.qh || 0, khongViec: sloM[k]?.kv || 0 }));
+    const giaiDoan = dmc.giaiDoan.map((k) => ({ k, c: gdM[k] || 0, daTung: rcM[k] || 0 }));
+    const lyDo = ld.results.map((r) => ({ k: r.k || '(chưa ghi)', c: r.c })).sort((x, y) => y.c - x.c);
+    const mucTn = mt.results.map((r) => ({ k: r.k, c: r.c }));
+    const tongMo = dm0.results[0].c, khongViec = sale.reduce((s, x) => s + x.khongViec, 0), quaHanN = sale.reduce((s, x) => s + x.quaHan, 0);
+    // ---- nhan xet tu dong theo quy tac (khong dung AI ngoai) ----
+    const nx = [], add = (loai, text) => nx.push({ loai, text });
+    const pc = (x) => Math.round(x * 100) + '%', ten = { ngay: 'hôm trước', tuan: 'tuần trước', thang: 'tháng trước' }[kieu];
+    if (C.nhan === 0 && Pv.nhan === 0) add('canh_bao', 'Chưa có lead nhận trong kỳ này lẫn ' + ten + ' (xem lại kênh khai thác hoặc chọn kỳ khác).');
+    else { const df = C.nhan - Pv.nhan; add(df >= 0 ? 'tot' : 'canh_bao', `Lead nhận: ${C.nhan} (${df >= 0 ? '+' : ''}${df} so với ${ten}${Pv.nhan ? ', ' + (df >= 0 ? '+' : '') + pc(df / Pv.nhan) : ''}).`); }
+    if (C.nhan >= 5) { const r = C.sdt / C.nhan; if (r < 0.4) add('canh_bao', `Chỉ ${pc(r)} lead có SĐT (${C.sdt}/${C.nhan}). SĐT là điều kiện để chăm sóc nhanh: ưu tiên xin/tra SĐT ngay khi nhận lead.`); else add('tot', `${pc(r)} lead có SĐT (${C.sdt}/${C.nhan}).`); }
+    const tn = nguon.filter((x) => x.nhan >= 5).sort((x, y) => y.sdt / y.nhan - x.sdt / x.nhan);
+    if (tn.length >= 2) add('goi_y', `Nguồn ra SĐT tốt nhất: ${tn[0].k} (${pc(tn[0].sdt / tn[0].nhan)}); kém nhất: ${tn[tn.length - 1].k} (${pc(tn[tn.length - 1].sdt / tn[tn.length - 1].nhan)}). Cân nhắc dồn công sức vào nguồn tốt.`);
+    if (C.ky > 0) add('tot', `Đã ký ${C.ky} lead trong kỳ${Pv.ky ? ' (kỳ trước ' + Pv.ky + ')' : ''}.`); else if (C.nhan >= 10) add('canh_bao', 'Chưa có lead nào chuyển sang Đã ký trong kỳ.');
+    if (quaHanN > 0) { const w = [...sale].sort((x, y) => y.quaHan - x.quaHan)[0]; add('canh_bao', `${quaHanN} lead có việc quá hạn; nhiều nhất ở ${w.k} (${w.quaHan}). Xử lý trước khi nhận thêm lead.`); }
+    if (khongViec > 0) add('goi_y', `${khongViec}/${tongMo} lead đang mở chưa có việc tiếp theo/ngày hạn. Nên đặt lịch việc tiếp theo để hệ thống nhắc quá hạn được.`);
+    const mo = sale.filter((x) => x.mo > 0).sort((x, y) => y.mo - x.mo);
+    if (mo.length >= 2 && mo[0].mo >= 2 * mo[mo.length - 1].mo && mo[0].mo - mo[mo.length - 1].mo >= 10) add('goi_y', `Tải lead không đều: ${mo[0].k} đang giữ ${mo[0].mo} lead mở, ${mo[mo.length - 1].k} chỉ ${mo[mo.length - 1].mo}. Cân nhắc chuyển bớt (nút Chuyển Sale).`);
+    if (lyDo.length) add('goi_y', `Lý do mất/không tiềm năng nhiều nhất trong kỳ: ${lyDo[0].k} (${lyDo[0].c}).`);
+    const bu = giaiDoan.filter((x) => x.c > 0); const hanhTrinh = ['Mới', 'Đã liên hệ', 'Hẹn tư vấn', 'Đã gửi proposal/báo giá', 'Đàm phán', 'Đã ký'];
+    if (C.nhan >= 10 && (gdM['Mới'] || 0) / C.nhan > 0.6) add('canh_bao', `${pc((gdM['Mới'] || 0) / C.nhan)} lead nhận trong kỳ vẫn ở giai đoạn Mới: cần liên hệ sớm hơn.`);
+    const hot2 = hot.results.length; if (hot2) add('goi_y', `${hot2} lead mức "Tiềm năng" đang mở (xem danh sách ưu tiên bên dưới).`);
+    return { ok: true, kieu, den: A, ky: { t: R.t, e: R.e }, kyTruoc: { t: P.t, e: P.e }, homNay: today, xuHuong: xuong, tong: C, truoc: Pv, tongMo, khongViec, quaHanN,
+      giaiDoan, nguon, sale, lyDo, mucTiemNang: mucTn, quaHan: qh.results, uuTien: hot.results, nhanXet: nx };
+  },
+
   // ---- quan tri ----
   async saoLuu(env, req, a) {
     // Admin: xuat toan bo du lieu thanh file SQL (INSERT) de luu local. Khong gom phien dang nhap.
@@ -358,7 +427,7 @@ const API = {
 // quyen: 'public' = khong can dang nhap; 'auth' = da dang nhap (ke ca dang bat buoc doi MK); 'use' = da doi MK; 'admin'
 const PERM = {
   login: 'public', phien: 'public', logout: 'public', doiMatKhau: 'auth', layDanhMuc: 'use',
-  themLead: 'use', danhSachLead: 'use', doiGiaiDoan: 'use', capNhatSdt: 'use', chuyenSale: 'use', lichSu: 'use', chiTietLead: 'use', baoCao: 'use',
+  themLead: 'use', danhSachLead: 'use', doiGiaiDoan: 'use', capNhatSdt: 'use', chuyenSale: 'use', lichSu: 'use', chiTietLead: 'use', baoCao: 'use', thongKe: 'use',
   danhSachTaiKhoan: 'admin', taoTaiKhoan: 'admin', datLaiMatKhau: 'admin', tatTaiKhoan: 'admin', saoLuu: 'admin',
 };
 

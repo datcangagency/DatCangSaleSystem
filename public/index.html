@@ -18,6 +18,13 @@ table{border-collapse:collapse;width:100%;font-size:13px}th,td{border:1px solid 
 th{background:#eef1f5}.msg{margin-top:10px;padding:8px;border-radius:4px}.err{background:#fde8e8;color:#900}.okm{background:#e6f4e6;color:#165}
 .hidden{display:none}.legend span{display:inline-block;padding:2px 8px;margin-right:8px;border:1px solid #bbb;font-size:12px}
 .pri{background:#fff8e1}
+.seg button{background:#fff;color:#1f3a5f;border:1px solid #1f3a5f;border-radius:0;padding:6px 14px;margin:0}.seg button.on{background:#1f3a5f;color:#fff}.seg{display:inline-block}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin:12px 0}.kpi{background:#fff;border:1px solid #d9dde3;border-radius:6px;padding:10px 12px;border-top:4px solid #1f3a5f}
+.kpi .n{font-size:28px;font-weight:bold}.kpi .l{font-size:12px;color:#555}.kpi .dl{font-size:12px}.up{color:#17703a}.dn{color:#b3261e}
+.nx{padding:8px 12px;margin:6px 0;border-left:5px solid #888;background:#f7f8fa;border-radius:3px;font-size:14px}.nx.tot{border-color:#2e8b57;background:#eef8f1}.nx.canh_bao{border-color:#c0392b;background:#fdf0ee}.nx.goi_y{border-color:#2a6fb0;background:#eef4fb}
+.bar{display:flex;align-items:center;margin:5px 0;font-size:13px}.bar .nm{width:170px;flex:none}.bar .tr{flex:1;background:#eef1f5;height:20px;border-radius:3px;position:relative}.bar .fl{height:20px;border-radius:3px;background:#1f3a5f}.bar .v{width:130px;flex:none;padding-left:8px}
+.tabs button{background:#fff;color:#1f3a5f;border:1px solid #1f3a5f;border-radius:16px;margin:2px 4px 2px 0;padding:6px 14px}.tabs button.on{background:#1f3a5f;color:#fff}
+
 </style></head><body>
 <div class="top"><b>Đất Cảng – Quản lý khách</b><span id="who"></span></div>
 <div class="wrap">
@@ -38,6 +45,7 @@ th{background:#eef1f5}.msg{margin-top:10px;padding:8px;border-radius:4px}.err{ba
 
 <div id="vApp" class="hidden">
  <div class="card"><button onclick="show('add')">+ Thêm lead</button> <button class="sec" style="font-size:14px;padding:8px 16px" onclick="show('list')">Danh sách lead</button>
+  <button class="sec" style="font-size:14px;padding:8px 16px" onclick="show('dash')">Dashboard</button>
   <button class="sec" style="font-size:14px;padding:8px 16px" onclick="show('report')">Báo cáo</button>
   <button id="bUsers" class="sec hidden" style="font-size:14px;padding:8px 16px" onclick="show('users')">Tài khoản</button>
   <button class="sec" onclick="doLogout()" style="float:right;font-size:14px;padding:8px 16px">Đăng xuất</button></div>
@@ -103,6 +111,17 @@ th{background:#eef1f5}.msg{margin-top:10px;padding:8px;border-radius:4px}.err{ba
   <h4>Hợp đồng, doanh thu, thực thi</h4><p class="hint">Phần này sẽ hiện ở bước tiếp theo (khi lead chuyển "Đã ký" sẽ tạo hợp đồng).</p>
  </div>
 
+ <div id="pDash" class="card hidden">
+  <h3>Dashboard lead</h3>
+  <p><span class="seg" id="dKieu"><button data-k="ngay" onclick="dashKieu('ngay')">Ngày</button><button data-k="tuan" class="on" onclick="dashKieu('tuan')">Tuần</button><button data-k="thang" onclick="dashKieu('thang')">Tháng</button></span>
+   <button class="sec" onclick="dashMove(-1)">◀ Kỳ trước</button> <input id="dDen" type="date" style="width:auto" onchange="loadDash()"> <button class="sec" onclick="dashMove(1)">Kỳ sau ▶</button> <button class="sec" onclick="dashToday()">Hôm nay</button>
+   <button class="sec" onclick="exportDash()">Xuất file Excel (CSV)</button> <span id="dKy" class="hint"></span></p>
+  <div id="dashmsg"></div><div id="dKpi" class="kpis"></div>
+  <h4>Đánh giá &amp; định hướng <span class="hint">(tự tính từ số liệu theo quy tắc cố định, không dùng AI bên ngoài)</span></h4><div id="dNx"></div>
+  <div class="tabs" id="dTabs"><button class="on" data-t="tq" onclick="dashTab('tq')">Tổng quan &amp; xu hướng</button><button data-t="ph" onclick="dashTab('ph')">Phễu giai đoạn</button><button data-t="ns" onclick="dashTab('ns')">Nguồn &amp; Sale</button><button data-t="ly" onclick="dashTab('ly')">Lý do &amp; việc cần làm</button></div>
+  <div id="dTab"></div>
+ </div>
+
  <div id="pReport" class="card hidden">
   <h3>Báo cáo lead</h3>
   <p><label style="display:inline">Tháng: </label><input id="rMonth" type="month" style="width:auto" onchange="loadReport()"> <button class="sec" onclick="loadReport()">Xem</button> <button class="sec" onclick="exportReport()">Xuất báo cáo (CSV)</button>
@@ -137,8 +156,8 @@ function call(fn,args,cb){
   .catch(function(){alert('Mất kết nối, thử lại.')})}
 function view(v){['vLogin','vPass','vApp'].forEach(function(x){$(x).classList.toggle('hidden',x!==v)});
   $('who').textContent=U&&v!=='vLogin'?U.ten+' ('+U.role+')':''}
-function show(p){var k=p.charAt(0).toUpperCase()+p.slice(1);['Add','List','Gd','Users','Detail','Report'].forEach(function(x){$('p'+x).classList.toggle('hidden',x!==k)});
-  if(k!=='Detail'&&/^#lead\//.test(location.hash))history.replaceState(null,'',location.pathname);if(k==='List')loadList();if(k==='Users')loadUsers();if(k==='Report')initReport()}
+function show(p){var k=p.charAt(0).toUpperCase()+p.slice(1);['Add','List','Gd','Users','Detail','Report','Dash'].forEach(function(x){$('p'+x).classList.toggle('hidden',x!==k)});
+  if(k!=='Detail'&&/^#lead\//.test(location.hash))history.replaceState(null,'',location.pathname);if(k==='List')loadList();if(k==='Users')loadUsers();if(k==='Report')initReport();if(k==='Dash')initDash()}
 function doLogin(){msg('lm','');call('login',{username:$('lu').value,password:$('lp').value},function(r){
   if(!r.ok){msg('lm',r.msg);return}T=r.token;U=r.user;try{sessionStorage.setItem('t',T)}catch(e){}$('lp').value='';after()})}
 function after(){if(U.doiMK){view('vPass');return}
@@ -218,6 +237,48 @@ function exportReport(){if(!RP){return}var r=RP,rows=[['Báo cáo lead tháng',r
   rows.push([],['Lý do mất/không tiềm năng','Số lead']);r.lyDo.forEach(function(x){rows.push([x.k,x.c])});rows.push([],['Mã','Khách','Sale','Giai đoạn','Việc','Ngày hạn']);r.quaHan.forEach(function(x){rows.push([x.ma,x.ten,x.sale,x.giai_doan,x.loai_viec+(x.hanh_dong?' – '+x.hanh_dong:''),dmy(x.ngay_hd)])});
   var out='sep=,\r\n'+rows.map(function(x){return x.map(csvCell).join(',')}).join('\r\n'),b=new Blob(['﻿'+out],{type:'text/csv;charset=utf-8'}),a=document.createElement('a');
   a.href=URL.createObjectURL(b);a.download='DatCang_BaoCao_Lead_'+r.thang+'.csv';document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},500);msg('rmsg','Đã xuất báo cáo.',true)}
+
+var DK='tuan',DD=null,DTAB='tq';
+function today7(){return new Date(Date.now()+7*3600000).toISOString().slice(0,10)}
+function initDash(){if(!$('dDen').value)$('dDen').value=today7();loadDash()}
+function dashKieu(k){DK=k;[].forEach.call($('dKieu').children,function(b){b.classList.toggle('on',b.getAttribute('data-k')===k)});loadDash()}
+function dashToday(){$('dDen').value=today7();loadDash()}
+function dashMove(n){var t=Date.parse(($('dDen').value||today7())+'T00:00:00Z'),s=DK==='ngay'?1:DK==='tuan'?7:0;
+  if(s)t+=n*s*86400000;else{var d=new Date(t);t=Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+n,1)}$('dDen').value=new Date(t).toISOString().slice(0,10);loadDash()}
+function dashTab(t){DTAB=t;[].forEach.call($('dTabs').children,function(b){b.classList.toggle('on',b.getAttribute('data-t')===t)});renderDash()}
+function loadDash(){msg('dashmsg','');call('thongKe',{kieu:DK,den:$('dDen').value||today7()},function(r){if(!r.ok){msg('dashmsg',r.msg);return}DD=r;renderDash()})}
+function delta(a,b,inv){var d=a-b;if(!d)return'<span class="dl hint">= kỳ trước ('+b+')</span>';var good=inv?d<0:d>0;return'<span class="dl '+(good?'up':'dn')+'">'+(d>0?'▲ +':'▼ ')+d+' so với kỳ trước ('+b+')</span>'}
+function barRow(nm,v,max,txt,color){var w=max?Math.max(v>0?2:0,Math.round(v/max*100)):0;return'<div class="bar"><span class="nm">'+esc(nm)+'</span><span class="tr"><div class="fl" style="width:'+w+'%;'+(color?'background:'+color:'')+'"></div></span><span class="v">'+txt+'</span></div>'}
+function trendSvg(xs){var W=900,H=260,L=40,B=30,T=14,max=1;xs.forEach(function(x){max=Math.max(max,x.nhan,x.sdt,x.ky)});max=Math.ceil(max*1.1);
+  var n=xs.length,bw=(W-L-10)/n,X=function(i){return L+bw*i+bw/2},Y=function(v){return T+(H-T-B)*(1-v/max)};
+  var s='<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;max-width:'+W+'px;background:#fff">';
+  for(var g=0;g<=4;g++){var v=Math.round(max*g/4),y=Y(v);s+='<line x1="'+L+'" x2="'+(W-6)+'" y1="'+y+'" y2="'+y+'" stroke="#e3e6eb"/><text x="'+(L-6)+'" y="'+(y+4)+'" font-size="11" text-anchor="end" fill="#666">'+v+'</text>'}
+  xs.forEach(function(x,i){s+='<rect x="'+(X(i)-bw*0.3)+'" y="'+Y(x.nhan)+'" width="'+bw*0.6+'" height="'+(H-B-Y(x.nhan))+'" fill="#1f3a5f" opacity="'+(i===n-1?1:.55)+'"><title>'+x.nhan_l+': nhận '+x.nhan+'</title></rect><text x="'+X(i)+'" y="'+(H-12)+'" font-size="10" text-anchor="middle" fill="#555">'+x.nhan_l+'</text>'});
+  [['sdt','#2e8b57'],['ky','#e08a00']].forEach(function(p){s+='<polyline fill="none" stroke="'+p[1]+'" stroke-width="2.5" points="'+xs.map(function(x,i){return X(i)+','+Y(x[p[0]])}).join(' ')+'"/>'+xs.map(function(x,i){return'<circle cx="'+X(i)+'" cy="'+Y(x[p[0]])+'" r="3.5" fill="'+p[1]+'"><title>'+x.nhan_l+': '+(p[0]==='sdt'?'có SĐT ':'đã ký ')+x[p[0]]+'</title></circle>'}).join('')});
+  return s+'</svg><p class="legend"><span style="border-color:#1f3a5f">■ Lead nhận (cột)</span><span style="border-color:#2e8b57">● Có SĐT</span><span style="border-color:#e08a00">● Đã ký</span></p>'}
+function renderDash(){var r=DD;if(!r)return;var c=r.tong,p=r.truoc,kyl={ngay:'Ngày',tuan:'Tuần',thang:'Tháng'}[r.kieu];
+  $('dKy').textContent=kyl+' '+(r.ky.t===r.ky.e?dmy(r.ky.t):dmy(r.ky.t)+' – '+dmy(r.ky.e))+' · kỳ trước '+(r.kyTruoc.t===r.kyTruoc.e?dmy(r.kyTruoc.t):dmy(r.kyTruoc.t)+' – '+dmy(r.kyTruoc.e));
+  var ty=c.nhan?Math.round(c.ky/c.nhan*1000)/10+'%':'–';
+  $('dKpi').innerHTML=[['Lead nhận',c.nhan,delta(c.nhan,p.nhan),'#1f3a5f'],['Có SĐT',c.sdt,(c.nhan?Math.round(c.sdt/c.nhan*100)+'% lead nhận · ':'')+'<span class="hint">kỳ trước '+p.sdt+'</span>','#2e8b57'],['Đã ký',c.ky,delta(c.ky,p.ky),'#e08a00'],['Tỷ lệ ký (ký/nhận)',ty,'<span class="hint">tính trong kỳ</span>','#6a4c93'],['Lead đang mở',r.tongMo,'<span class="hint">toàn bộ hiện tại</span>','#2a6fb0'],['Quá hạn / chưa có việc',r.quaHanN+' / '+r.khongViec,'<span class="hint">lead mở</span>',(r.quaHanN||r.khongViec)?'#c0392b':'#2e8b57']].map(function(k){return'<div class="kpi" style="border-top-color:'+k[3]+'"><div class="l">'+k[0]+'</div><div class="n">'+k[1]+'</div>'+k[2]+'</div>'}).join('');
+  $('dNx').innerHTML=r.nhanXet.map(function(x){return'<div class="nx '+x.loai+'">'+({tot:'✔ ',canh_bao:'⚠ ',goi_y:'➜ '}[x.loai]||'')+esc(x.text)+'</div>'}).join('');
+  var s='';
+  if(DTAB==='tq'){s='<h4>Xu hướng '+(r.kieu==='ngay'?'14 ngày':r.kieu==='tuan'?'12 tuần':'12 tháng')+' gần nhất</h4>'+trendSvg(r.xuHuong)}
+  if(DTAB==='ph'){var mx=0;r.giaiDoan.forEach(function(x){mx=Math.max(mx,x.c,x.daTung)});s='<h4>Giai đoạn hiện tại của lead nhận trong kỳ</h4><p class="hint">Cột = số lead đang ở giai đoạn đó; “đã từng” = lead đã từng đạt giai đoạn (từ lịch sử).</p>'+r.giaiDoan.map(function(x){return barRow(x.k,x.c,mx,x.c+' lead · đã từng '+x.daTung,{'Đã ký':'#2e8b57','Mất':'#b3261e','Không tiềm năng':'#8a8f98'}[x.k])}).join('')+
+    '<h4>Mức tiềm năng (lead nhận trong kỳ)</h4>'+(r.mucTiemNang.length?r.mucTiemNang.map(function(x){return barRow(x.k,x.c,c.nhan||1,x.c,'#6a4c93')}).join(''):'<p class="hint">Chưa có lead.</p>')}
+  if(DTAB==='ns'){var mn=1;r.nguon.concat(r.sale).forEach(function(x){mn=Math.max(mn,x.nhan)});
+    s='<h4>Theo nguồn (lead nhận trong kỳ)</h4>'+r.nguon.map(function(x){return barRow(x.k,x.nhan,mn,x.nhan+' lead · SĐT '+x.sdt+(x.nhan?' ('+Math.round(x.sdt/x.nhan*100)+'%)':'')+' · ký '+x.ky)}).join('')+
+    '<h4>Theo Sale</h4>'+tbl(['Sale','Nhận trong kỳ','Có SĐT','Đã ký (nhận trong kỳ)','Đang mở','Quá hạn','Chưa có việc'],r.sale.map(function(x){return[esc(x.k),x.nhan,x.sdt,x.ky,x.mo,x.quaHan?'<b style="color:#b3261e">'+x.quaHan+'</b>':0,x.khongViec]}))}
+  if(DTAB==='ly'){var ml=0;r.lyDo.forEach(function(x){ml=Math.max(ml,x.c)});
+    s='<h4>Lý do mất / không tiềm năng (đổi giai đoạn trong kỳ)</h4>'+(r.lyDo.length?r.lyDo.map(function(x){return barRow(x.k,x.c,ml,x.c,'#b3261e')}).join(''):'<p class="hint">Không có trong kỳ.</p>')+
+    '<h4>Việc quá hạn (đến '+esc(dmy(r.homNay))+')</h4>'+(r.quaHan.length?tbl(['Mã','Khách','Sale','Giai đoạn','Việc','Ngày hạn'],r.quaHan.map(function(x){return['<a href="#lead/'+encodeURIComponent(x.ma)+'">'+esc(x.ma)+'</a>',esc(x.ten),esc(x.sale),esc(x.giai_doan),esc(x.loai_viec+(x.hanh_dong?': '+x.hanh_dong:'')),esc(dmy(x.ngay_hd))]})):'<p class="hint">Không có việc quá hạn.</p>')+
+    '<h4>Lead “Tiềm năng” đang mở – nên ưu tiên</h4>'+(r.uuTien.length?tbl(['Mã','Khách','Sale','Giai đoạn','Ưu tiên'],r.uuTien.map(function(x){return['<a href="#lead/'+encodeURIComponent(x.ma)+'">'+esc(x.ma)+'</a>',esc(x.ten),esc(x.sale),esc(x.giai_doan),x.uu_tien?'★':'']})):'<p class="hint">Chưa có.</p>')}
+  $('dTab').innerHTML=s}
+function exportDash(){var r=DD;if(!r)return;var rows=[['Dashboard lead',r.kieu,r.ky.t,r.ky.e],[],['Chỉ số','Kỳ này','Kỳ trước'],['Lead nhận',r.tong.nhan,r.truoc.nhan],['Có SĐT',r.tong.sdt,r.truoc.sdt],['Đã ký',r.tong.ky,r.truoc.ky],['Lead đang mở',r.tongMo],['Quá hạn',r.quaHanN],['Chưa có việc',r.khongViec],[],['Xu hướng: kỳ','Từ','Đến','Nhận','Có SĐT','Đã ký']];
+  r.xuHuong.forEach(function(x){rows.push([x.nhan_l,x.t,x.e,x.nhan,x.sdt,x.ky])});rows.push([],['Giai đoạn','Lead hiện tại','Đã từng đạt']);r.giaiDoan.forEach(function(x){rows.push([x.k,x.c,x.daTung])});
+  rows.push([],['Nguồn','Nhận','Có SĐT','Đã ký','Đã đóng']);r.nguon.forEach(function(x){rows.push([x.k,x.nhan,x.sdt,x.ky,x.dong])});rows.push([],['Sale','Nhận','Có SĐT','Đã ký','Đang mở','Quá hạn','Chưa có việc']);r.sale.forEach(function(x){rows.push([x.k,x.nhan,x.sdt,x.ky,x.mo,x.quaHan,x.khongViec])});
+  rows.push([],['Lý do mất','Số lead']);r.lyDo.forEach(function(x){rows.push([x.k,x.c])});rows.push([],['Đánh giá & định hướng']);r.nhanXet.forEach(function(x){rows.push([x.text])});
+  var out='sep=,\r\n'+rows.map(function(x){return x.map(csvCell).join(',')}).join('\r\n'),b=new Blob(['﻿'+out],{type:'text/csv;charset=utf-8'}),a=document.createElement('a');
+  a.href=URL.createObjectURL(b);a.download='DatCang_Dashboard_'+r.kieu+'_'+r.ky.t+'.csv';document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},500)}
 function loadList(){call('danhSachLead',{},function(r){if(!r.ok){msg('lmsg',r.msg);return}LEADS=r.leads;renderList()})}
 function renderList(){var f=$('lFilter').value;
   $('tb').innerHTML=LEADS.map(function(l,i){if(f==='mine'&&l.sale!==U.ten)return'';

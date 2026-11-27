@@ -83,7 +83,7 @@ function call(fn,args,cb){google.script.run.withSuccessHandler(function(r){
   .withFailureHandler(function(){alert('Mất kết nối, thử lại.')})[fn].apply(null,args)}
 function view(v){['vLogin','vPass','vApp'].forEach(function(x){$(x).classList.toggle('hidden',x!==v)});
   $('who').textContent=U?U.ten+' ('+U.role+')':''}
-function show(p){['Add','List','Gd'].forEach(function(x){$('p'+x).classList.toggle('hidden',x!==p)});if(p==='list')loadList()}
+function show(p){var k=p.charAt(0).toUpperCase()+p.slice(1);['Add','List','Gd'].forEach(function(x){$('p'+x).classList.toggle('hidden',x!==k)});if(k==='List')loadList()}
 function doLogin(){msg('lm','');call('login',[$('lu').value,$('lp').value],function(r){
   if(!r.ok){msg('lm',r.msg);return}T=r.token;U=r.user;try{sessionStorage.setItem('t',T)}catch(e){}$('lp').value='';after()})}
 function after(){if(U.doiMK){view('vPass');return}

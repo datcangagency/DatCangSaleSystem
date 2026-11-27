@@ -23,7 +23,8 @@ ok(bc.dangMo === ls.filter((x) => !['Đã ký', 'Mất', 'Không tiềm năng'].
 ok(bc.thangNay.tyLeKy === (bc.thangNay.nhan ? bc.thangNay.ky / bc.thangNay.nhan : null), 'ty le ky = ky/nhan');
 // them 1 lead Da ky de thu dem ky
 const ky = await api('themLead', { ten: 'Mau Ky', sdt: '0911000099', cachSdt: 'Khách cho', nguon: 'Được giới thiệu', sale: 'An', ngayNhan: th + '-01', ngayHanhDong: th + '-28', loaiViec: 'Gọi lại' }, adm);
-await api('doiGiaiDoan', { ma: ky.ma, giaiDoan: 'Đã ký' }, adm);
+ok(!(await api('doiGiaiDoan', { ma: ky.ma, giaiDoan: 'Đã ký' }, adm)).ok, 'Đã ký bắt buộc kèm hợp đồng');
+await api('doiGiaiDoan', { ma: ky.ma, giaiDoan: 'Đã ký', hopDong: { loai: 'Theo thời hạn', soThang: 1, giaTri: 6000000, ngayKy: th + '-05', keHoach: 'mot_lan' } }, adm);
 const bc2 = await api('baoCao', { thang: th }, adm); ok(bc2.thangNay.ky === bc.thangNay.ky + 1 && bc2.theoSale.find((x) => x.sale === 'An').ky >= 1, 'dem lead da ky trong thang tang 1');
 const old = await api('baoCao', { thang: '2020-01' }, adm); ok(old.ok && old.thangNay.nhan === 0 && old.thangNay.tyLeKy === null, 'thang cu khong co du lieu: 0, ty le trong');
 ok((await api('baoCao', { thang: 'abc' }, adm)).thang === th, 'thang sai dinh dang -> thang hien tai');

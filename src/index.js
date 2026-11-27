@@ -29,6 +29,104 @@ function safe(v) { const s = String(v == null ? '' : v); return /^[=+\-@\t\r]/.t
 function bkk() { return new Date(now() + 7 * 3600 * 1000); }       // gio Viet Nam
 function yymm() { const d = bkk(); return String(d.getUTCFullYear()).slice(2) + ('0' + (d.getUTCMonth() + 1)).slice(-2); }
 function validDate(s) { return /^\d{4}-\d{2}-\d{2}$/.test(String(s || '')) && !isNaN(Date.parse(s + 'T00:00:00Z')); }
+
+// ---- hop dong / doanh thu ----
+const LOAI_HD = ['Theo gói', 'Theo thời hạn'], KE_HOACH = ['mot_lan', '50_50'];
+const LOAI_TT = ['Giao sản phẩm', 'Báo cáo/Họp khách', 'Phản hồi của khách', 'Khác'];
+const TT_HD = ['Đang thực hiện', 'Hoàn thành', 'Hủy'];
+const HD_HET_GAN = 14, HD_IM_LANG = 14, HD_THU_GAN = 7;   // ngay: gan het han / khong co su kien thuc thi / sap den han thu (proposed, chinh duoc)
+const ymd = (dt) => dt.toISOString().slice(0, 10);
+const homNayVN = () => ymd(bkk());
+function addMonths(s, n) { const [y, m, d] = s.split('-').map(Number); const t = new Date(Date.UTC(y, m - 1 + n, 1)); const last = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() + 1, 0)).getUTCDate(); t.setUTCDate(Math.min(d, last)); return ymd(t); }
+function addDays(s, n) { const t = new Date(s + 'T00:00:00Z'); t.setUTCDate(t.getUTCDate() + n); return ymd(t); }
+function diffDays(a, b) { return Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 86400000); }
+const tien = (v) => Math.round(Number(v) || 0);
+
+// Kiem tra du lieu hop dong + dung cac cau lenh INSERT (hop_dong + dot_thu). lead: dong lead (hoac null)
+async function chuanBiHD(env, a, d, lead) {
+  const khach = String((d.khach || (lead && lead.ten) || '')).trim();
+  const loai = String(d.loai || ''), ngayKy = String(d.ngayKy || homNayVN());
+  const soThang = d.soThang === '' || d.soThang == null ? 0 : Number(d.soThang), camKet = d.camKet === '' || d.camKet == null ? 0 : Number(d.camKet);
+  const gia = Number(d.giaTri), ke = String(d.keHoach || 'mot_lan'), donVi = String(d.donVi || '').trim();
+  const e = [];
+  if (!khach || khach.length > 150) e.push('Tên khách bắt buộc (tối đa 150 ký tự).');
+  if (!LOAI_HD.includes(loai)) e.push('Chọn loại hợp đồng: Theo gói hoặc Theo thời hạn.');
+  if (!validDate(ngayKy)) e.push('Ngày ký không hợp lệ.');
+  if (!Number.isFinite(gia) || gia <= 0) e.push('Giá trị hợp đồng (Net trước VAT) phải lớn hơn 0.');
+  if (!KE_HOACH.includes(ke)) e.push('Kiểu thanh toán không hợp lệ.');
+  if (!Number.isInteger(soThang) || soThang < 0 || soThang > 60) e.push('Số tháng phải là số nguyên 0-60.');
+  if (!Number.isInteger(camKet) || camKet < 0 || camKet > 100000) e.push('Số lượng cam kết phải là số nguyên không âm.');
+  if (loai === 'Theo thời hạn' && soThang < 1) e.push('Hợp đồng theo thời hạn cần số tháng ≥ 1.');
+  if (loai === 'Theo gói' && camKet < 1) e.push('Hợp đồng theo gói cần số lượng cam kết ≥ 1 (ví dụ 5 video).');
+  if (ke === '50_50' && loai === 'Theo thời hạn' && soThang < 3) e.push('Hợp đồng dưới 3 tháng thu 1 lần (100%). Chỉ từ 3 tháng mới chia 50% + 50%.');
+  let ngayHet = String(d.ngayHet || '');
+  if (ngayHet && !validDate(ngayHet)) e.push('Ngày hết hạn không hợp lệ.');
+  if (!ngayHet && soThang > 0) ngayHet = addMonths(ngayKy, soThang);
+  if (ngayHet && validDate(ngayKy) && ngayHet < ngayKy) e.push('Ngày hết hạn không được trước ngày ký.');
+  if (donVi.length > 30) e.push('Đơn vị tối đa 30 ký tự.');
+  const ghiChu = String(d.ghiChu || '').trim();
+  if (ghiChu.length > 500) e.push('Ghi chú tối đa 500 ký tự.');
+  let sale = a.role === 'Sale' ? a.ten : String(d.sale || (lead && lead.sale) || '').trim();
+  if (!sale) e.push('Chọn Sale phụ trách.');
+  else if (a.role !== 'Sale' && !(await catalog(env)).sale.includes(sale)) e.push('Sale không có trong danh mục.');
+  if (lead && a.role === 'Sale' && lead.sale !== a.ten) e.push('Lead này không thuộc Sale của bạn.');
+  if (e.length) return { err: e.join(' ') };
+  const t = now(), key = 'HD-' + yymm();
+  const c = await env.DB.prepare('INSERT INTO counters(key,n) VALUES(?,1) ON CONFLICT(key) DO UPDATE SET n = n + 1 RETURNING n').bind(key).first();
+  const ma = key + '-' + ('000' + c.n).slice(-3);
+  const giaR = tien(gia);
+  const dots = ke === '50_50' ? [[1, 50, Math.round(giaR / 2), ngayKy], [2, 50, giaR - Math.round(giaR / 2), addMonths(ngayKy, 1)]] : [[1, 100, giaR, ngayKy]];
+  const stmts = [env.DB.prepare('INSERT INTO contracts(ma,lead_ma,khach,sale,loai,ngay_ky,so_thang,ngay_het,cam_ket,don_vi,gia_tri,ke_hoach,trang_thai,can_xac_nhan,ghi_chu,tao_luc,sua_boi,sua_luc) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+    .bind(ma, lead ? lead.ma : '', safe(khach), sale, loai, ngayKy, soThang, ngayHet, camKet, safe(donVi), giaR, ke, 'Đang thực hiện', d.canXacNhan ? 1 : 0, safe(ghiChu), t, a.ten, t)];
+  for (const x of dots) stmts.push(env.DB.prepare('INSERT INTO dot_thu(hd_ma,dot,ty_le,so_tien,han) VALUES(?,?,?,?,?)').bind(ma, x[0], x[1], x[2], x[3]));
+  stmts.push(logStmt(env, a.username, 'TAO_HOP_DONG', ma, `${khach} | ${loai} | ${giaR} | ${ke}${lead ? ' | ' + lead.ma : ''}`));
+  return { ma, stmts };
+}
+
+// Gom so lieu phat sinh cho tap hop dong: tong da thu, dot thu, su kien thuc thi
+async function phanTichHD(env, rows) {
+  if (!rows.length) return [];
+  const [dots, thu, tt, gh] = await env.DB.batch([
+    env.DB.prepare('SELECT hd_ma, dot, ty_le, so_tien, han FROM dot_thu ORDER BY hd_ma, dot'),
+    env.DB.prepare('SELECT hd_ma, SUM(so_tien) AS s, MAX(ngay) AS cuoi FROM thu_tien GROUP BY hd_ma'),
+    env.DB.prepare('SELECT hd_ma, COUNT(*) AS n, MAX(ngay) AS cuoi FROM thuc_thi GROUP BY hd_ma'),
+    env.DB.prepare("SELECT hd_ma, SUM(so_luong) AS s FROM thuc_thi WHERE loai = 'Giao sản phẩm' GROUP BY hd_ma"),
+  ]);
+  const by = (r) => { const m = {}; for (const x of r.results) (m[x.hd_ma] = m[x.hd_ma] || []).push(x); return m; };
+  const mDot = by(dots), mThu = {}, mTt = {}, mGh = {};
+  for (const x of thu.results) mThu[x.hd_ma] = x; for (const x of tt.results) mTt[x.hd_ma] = x; for (const x of gh.results) mGh[x.hd_ma] = x.s || 0;
+  const today = homNayVN();
+  return rows.map((c) => {
+    const ds = mDot[c.ma] || [], daThu = tien((mThu[c.ma] || {}).s), tc = mTt[c.ma] || {};
+    let cum = 0, quaHanSo = 0, dotTiep = null;
+    for (const x of ds) { cum += x.so_tien; if (x.han < today && daThu < cum) quaHanSo = Math.max(quaHanSo, cum - daThu); }
+    let acc = 0; for (const x of ds) { acc += x.so_tien; if (daThu < acc) { dotTiep = { dot: x.dot, han: x.han, soTien: Math.min(x.so_tien, acc - daThu) }; break; } }
+    return { ...c, dots: ds, daThu, conPhai: Math.max(0, c.gia_tri - daThu), quaHanSo, dotTiep, giao: mGh[c.ma] || 0, suKien: tc.n || 0, suKienCuoi: tc.cuoi || '' };
+  });
+}
+
+function canhBaoHD(list) {
+  const today = homNayVN(), out = { thu: [], het: [], tienDo: [], imLang: [] };
+  for (const c of list) {
+    if (c.trang_thai !== 'Đang thực hiện') continue;
+    const base = { ma: c.ma, khach: c.khach, sale: c.sale };
+    if (c.quaHanSo > 0) out.thu.push({ ...base, muc: 'quá hạn', soTien: c.quaHanSo, han: (c.dotTiep || {}).han || '', text: `Quá hạn thu ${tien(c.quaHanSo).toLocaleString('vi-VN')} đ` });
+    else if (c.dotTiep && c.dotTiep.han >= today && diffDays(today, c.dotTiep.han) <= HD_THU_GAN) out.thu.push({ ...base, muc: 'sắp đến hạn', soTien: c.dotTiep.soTien, han: c.dotTiep.han, text: `Đợt ${c.dotTiep.dot} thu ${tien(c.dotTiep.soTien).toLocaleString('vi-VN')} đ, hạn ${c.dotTiep.han.split('-').reverse().join('/')}` });
+    if (c.ngay_het) { const n = diffDays(today, c.ngay_het); if (n <= HD_HET_GAN) out.het.push({ ...base, ngayHet: c.ngay_het, conLai: n, text: n < 0 ? `Đã hết hạn ${-n} ngày, chưa đóng hợp đồng` : `Còn ${n} ngày hết hạn: chuẩn bị tái ký` }); }
+    if (c.loai === 'Theo gói' && c.cam_ket > 0) {
+      const dv = c.don_vi || 'sản phẩm', xong = c.giao / c.cam_ket;
+      if (c.giao >= c.cam_ket) out.tienDo.push({ ...base, muc: 'đủ số lượng', text: `Đã giao đủ ${c.giao}/${c.cam_ket} ${dv}: đóng hợp đồng hoặc chào gói mới` });
+      else if (c.ngay_het && c.ngay_ky < c.ngay_het) { const tl = Math.min(1, Math.max(0, diffDays(c.ngay_ky, today) / diffDays(c.ngay_ky, c.ngay_het)));
+        if (tl - xong >= 0.25) out.tienDo.push({ ...base, muc: 'chậm tiến độ', text: `Đã qua ${Math.round(tl * 100)}% thời gian nhưng mới giao ${c.giao}/${c.cam_ket} ${dv}` }); }
+    }
+    const moc = c.suKienCuoi || c.ngay_ky, im = diffDays(moc, today);
+    if (im >= HD_IM_LANG) out.imLang.push({ ...base, soNgay: im, text: c.suKienCuoi ? `${im} ngày chưa có sự kiện thực thi (gần nhất ${c.suKienCuoi.split('-').reverse().join('/')})` : `${im} ngày từ khi ký chưa có sự kiện thực thi nào` });
+  }
+  return out;
+}
+const hdOut = (c) => ({ ma: c.ma, leadMa: c.lead_ma, khach: c.khach, sale: c.sale, loai: c.loai, ngayKy: c.ngay_ky, soThang: c.so_thang, ngayHet: c.ngay_het, camKet: c.cam_ket, donVi: c.don_vi, giaTri: c.gia_tri, keHoach: c.ke_hoach,
+  trangThai: c.trang_thai, canXacNhan: !!c.can_xac_nhan, ghiChu: c.ghi_chu, daThu: c.daThu, conPhai: c.conPhai, quaHanSo: c.quaHanSo, dotTiep: c.dotTiep, dots: c.dots.map((x) => ({ dot: x.dot, tyLe: x.ty_le, soTien: x.so_tien, han: x.han })), giao: c.giao, suKien: c.suKien, suKienCuoi: c.suKienCuoi });
+const hdVisible = (a) => a.role === 'Sale' ? ' WHERE sale = ?' : '';
 function normPhone(v) {
   let s = String(v || '').trim().replace(/[\s.\-()]/g, '');
   if (/^\+?84\d{9,10}$/.test(s)) s = '0' + s.replace(/^\+?84/, '');
@@ -205,9 +303,16 @@ const API = {
       'UPDATE leads SET giai_doan=?, ngay_doi_gd=?, muc_tiem_nang=?, ly_do=?, loai_viec=?, hanh_dong=?, ngay_hd=?, sua_boi=?, sua_luc=? WHERE ma=?'
     ).bind(gd, t, muc, lyDo, loai, safe(hd), ngay, a.ten, t, l.ma)];
     if (gd !== l.giai_doan) sets.push(env.DB.prepare('INSERT INTO stage_history(ma,tu,den,luc,boi,ghi_chu) VALUES(?,?,?,?,?,?)').bind(l.ma, l.giai_doan, gd, t, a.ten, safe(ghiChu || lyDo)));
+    let maHD = '';
+    if (gd === 'Đã ký' && l.giai_doan !== 'Đã ký' && !(await env.DB.prepare('SELECT 1 FROM contracts WHERE lead_ma = ?').bind(l.ma).first())) {
+      if (a.role === 'QLDA') return fail('Chỉ Sale hoặc Admin được chuyển lead sang Đã ký (cần tạo hợp đồng).');
+      if (!d.hopDong || typeof d.hopDong !== 'object') return fail('Chuyển sang Đã ký phải tạo hợp đồng ngay: nhập loại, ngày ký, giá trị, kiểu thanh toán.');
+      const r = await chuanBiHD(env, a, { ...d.hopDong, sale: a.role === 'Sale' ? a.ten : (d.hopDong.sale || l.sale) }, l); if (r.err) return fail(r.err);
+      sets.push(...r.stmts); maHD = r.ma;
+    }
     sets.push(logStmt(env, a.username, 'DOI_GIAI_DOAN', l.ma, `${l.giai_doan} -> ${gd}`));
     await env.DB.batch(sets);
-    return { ok: true };
+    return { ok: true, hopDong: maHD };
   },
 
   async capNhatSdt(env, req, a, d) {
@@ -368,10 +473,154 @@ const API = {
       giaiDoan, nguon, sale, lyDo, mucTiemNang: mucTn, quaHan: qh.results, uuTien: hot.results, nhanXet: nx };
   },
 
+  // ---- hop dong / doanh thu ----
+  async taoHopDong(env, req, a, d) {
+    if (a.role === 'QLDA') return fail('Chỉ Sale hoặc Admin được tạo hợp đồng.');
+    let lead = null;
+    if (d.leadMa) {
+      lead = await env.DB.prepare('SELECT * FROM leads WHERE ma = ?').bind(String(d.leadMa)).first();
+      if (!lead) return fail('Không tìm thấy lead.');
+      if (await env.DB.prepare('SELECT 1 FROM contracts WHERE lead_ma = ?').bind(lead.ma).first()) return fail('Lead này đã có hợp đồng.');
+    }
+    const r = await chuanBiHD(env, a, d, lead); if (r.err) return fail(r.err);
+    await env.DB.batch(r.stmts);
+    return { ok: true, ma: r.ma };
+  },
+
+  async danhSachHopDong(env, req, a) {
+    const sale = a.role === 'Sale';
+    const q = env.DB.prepare('SELECT * FROM contracts' + hdVisible(a) + ' ORDER BY ngay_ky DESC, ma DESC'); const rows = (sale ? await q.bind(a.ten).all() : await q.all()).results;
+    const ds = await phanTichHD(env, rows);
+    const q2 = env.DB.prepare("SELECT ma, ten, sale, ngay_doi_gd FROM leads WHERE giai_doan = 'Đã ký' AND ma NOT IN (SELECT lead_ma FROM contracts WHERE lead_ma <> '')" + (sale ? ' AND sale = ?' : '') + ' ORDER BY ngay_doi_gd DESC');
+    const thieu = (sale ? await q2.bind(a.ten).all() : await q2.all()).results;
+    return { ok: true, hd: ds.map(hdOut), thieuHD: thieu.map((x) => ({ ma: x.ma, ten: x.ten, sale: x.sale })), canhBao: canhBaoHD(ds), homNay: homNayVN() };
+  },
+
+  async chiTietHopDong(env, req, a, d) {
+    const c = await env.DB.prepare('SELECT * FROM contracts WHERE ma = ?').bind(String(d.ma || '')).first();
+    if (!c || (a.role === 'Sale' && c.sale !== a.ten)) return fail('Không tìm thấy hợp đồng.');
+    const [p] = await phanTichHD(env, [c]);
+    const [thu, tt] = await env.DB.batch([
+      env.DB.prepare('SELECT id, ngay, so_tien, ghi_chu, boi, luc FROM thu_tien WHERE hd_ma = ? ORDER BY ngay, id').bind(c.ma),
+      env.DB.prepare('SELECT id, ngay, loai, so_luong, noi_dung, boi, luc FROM thuc_thi WHERE hd_ma = ? ORDER BY ngay DESC, id DESC').bind(c.ma),
+    ]);
+    return { ok: true, hd: hdOut(p), thu: thu.results, thucThi: tt.results, canhBao: canhBaoHD([p]), loaiThucThi: LOAI_TT };
+  },
+
+  async ghiThuTien(env, req, a, d) {
+    const c = await env.DB.prepare('SELECT * FROM contracts WHERE ma = ?').bind(String(d.ma || '')).first();
+    if (!c) return fail('Không tìm thấy hợp đồng.');
+    const so = Number(d.soTien), ngay = String(d.ngay || homNayVN()), gc = String(d.ghiChu || '').trim();
+    if (!Number.isFinite(so) || so <= 0) return fail('Số tiền phải lớn hơn 0.');
+    if (!validDate(ngay)) return fail('Ngày thu không hợp lệ.');
+    if (gc.length > 300) return fail('Ghi chú tối đa 300 ký tự.');
+    const da = tien((await env.DB.prepare('SELECT SUM(so_tien) AS s FROM thu_tien WHERE hd_ma = ?').bind(c.ma).first()).s);
+    if (da + Math.round(so) > c.gia_tri) return fail(`Vượt giá trị hợp đồng: đã thu ${da.toLocaleString('vi-VN')} đ, còn phải thu ${(c.gia_tri - da).toLocaleString('vi-VN')} đ.`);
+    const t = now();
+    await env.DB.batch([
+      env.DB.prepare('INSERT INTO thu_tien(hd_ma,ngay,so_tien,ghi_chu,boi,luc) VALUES(?,?,?,?,?,?)').bind(c.ma, ngay, Math.round(so), safe(gc), a.ten, t),
+      env.DB.prepare('UPDATE contracts SET sua_boi=?, sua_luc=? WHERE ma=?').bind(a.ten, t, c.ma),
+      logStmt(env, a.username, 'THU_TIEN', c.ma, `${Math.round(so)} | ${ngay}${gc ? ' | ' + safe(gc) : ''}`),
+    ]);
+    return { ok: true, conPhai: c.gia_tri - da - Math.round(so) };
+  },
+
+  async ghiThucThi(env, req, a, d) {
+    if (a.role === 'Sale') return fail('Sale không ghi thực thi; nhờ QLDA hoặc Admin.');
+    const c = await env.DB.prepare('SELECT ma FROM contracts WHERE ma = ?').bind(String(d.ma || '')).first();
+    if (!c) return fail('Không tìm thấy hợp đồng.');
+    const loai = String(d.loai || ''), ngay = String(d.ngay || homNayVN()), nd = String(d.noiDung || '').trim(), sl = d.soLuong === '' || d.soLuong == null ? 0 : Number(d.soLuong);
+    if (!LOAI_TT.includes(loai)) return fail('Chọn loại sự kiện.');
+    if (!validDate(ngay)) return fail('Ngày không hợp lệ.');
+    if (!Number.isInteger(sl) || sl < 0 || sl > 10000) return fail('Số lượng phải là số nguyên không âm.');
+    if (loai === 'Giao sản phẩm' && sl < 1) return fail('Giao sản phẩm cần số lượng ≥ 1.');
+    if (!nd) return fail('Nhập nội dung ngắn (đã làm gì).');
+    if (nd.length > 500) return fail('Nội dung tối đa 500 ký tự.');
+    const t = now();
+    await env.DB.batch([
+      env.DB.prepare('INSERT INTO thuc_thi(hd_ma,ngay,loai,so_luong,noi_dung,boi,luc) VALUES(?,?,?,?,?,?,?)').bind(c.ma, ngay, loai, loai === 'Giao sản phẩm' ? sl : 0, safe(nd), a.ten, t),
+      logStmt(env, a.username, 'THUC_THI', c.ma, `${loai}${sl ? ' x' + sl : ''}`),
+    ]);
+    return { ok: true };
+  },
+
+  async suaHopDong(env, req, a, d) {
+    const c = await env.DB.prepare('SELECT * FROM contracts WHERE ma = ?').bind(String(d.ma || '')).first();
+    if (!c) return fail('Không tìm thấy hợp đồng.');
+    const e = [], n = { ...c };
+    const has = (k) => d[k] !== undefined;
+    if (has('khach')) { n.khach = String(d.khach).trim(); if (!n.khach || n.khach.length > 150) e.push('Tên khách bắt buộc (tối đa 150 ký tự).'); }
+    if (has('trangThai')) { n.trang_thai = String(d.trangThai); if (!TT_HD.includes(n.trang_thai)) e.push('Trạng thái không hợp lệ.'); }
+    if (has('ngayHet')) { n.ngay_het = String(d.ngayHet || ''); if (n.ngay_het && !validDate(n.ngay_het)) e.push('Ngày hết hạn không hợp lệ.'); }
+    if (has('camKet')) { n.cam_ket = Number(d.camKet); if (!Number.isInteger(n.cam_ket) || n.cam_ket < 0) e.push('Số lượng cam kết không hợp lệ.'); }
+    if (has('donVi')) n.don_vi = String(d.donVi).trim().slice(0, 30);
+    if (has('ghiChu')) { n.ghi_chu = String(d.ghiChu).trim(); if (n.ghi_chu.length > 500) e.push('Ghi chú tối đa 500 ký tự.'); }
+    if (has('canXacNhan')) n.can_xac_nhan = d.canXacNhan ? 1 : 0;
+    if (has('sale')) { n.sale = String(d.sale).trim(); if (!(await catalog(env)).sale.includes(n.sale)) e.push('Sale không có trong danh mục.'); }
+    const doiTien = has('giaTri') || has('keHoach') || has('ngayKy');
+    let dots = null;
+    if (doiTien) {
+      if (await env.DB.prepare('SELECT 1 FROM thu_tien WHERE hd_ma = ?').bind(c.ma).first()) e.push('Hợp đồng đã có khoản thu, không đổi giá trị / kiểu thanh toán / ngày ký được.');
+      else {
+        n.gia_tri = has('giaTri') ? tien(d.giaTri) : c.gia_tri; n.ke_hoach = has('keHoach') ? String(d.keHoach) : c.ke_hoach; n.ngay_ky = has('ngayKy') ? String(d.ngayKy) : c.ngay_ky;
+        if (!(n.gia_tri > 0)) e.push('Giá trị phải lớn hơn 0.'); if (!KE_HOACH.includes(n.ke_hoach)) e.push('Kiểu thanh toán không hợp lệ.'); if (!validDate(n.ngay_ky)) e.push('Ngày ký không hợp lệ.');
+        if (n.ke_hoach === '50_50' && n.loai === 'Theo thời hạn' && n.so_thang < 3) e.push('Hợp đồng dưới 3 tháng thu 1 lần.');
+        dots = n.ke_hoach === '50_50' ? [[1, 50, Math.round(n.gia_tri / 2), n.ngay_ky], [2, 50, n.gia_tri - Math.round(n.gia_tri / 2), addMonths(n.ngay_ky, 1)]] : [[1, 100, n.gia_tri, n.ngay_ky]];
+      }
+    }
+    if (e.length) return fail(e.join(' '));
+    const t = now(), st = [env.DB.prepare('UPDATE contracts SET khach=?,sale=?,ngay_ky=?,ngay_het=?,cam_ket=?,don_vi=?,gia_tri=?,ke_hoach=?,trang_thai=?,can_xac_nhan=?,ghi_chu=?,sua_boi=?,sua_luc=? WHERE ma=?')
+      .bind(safe(n.khach), n.sale, n.ngay_ky, n.ngay_het, n.cam_ket, safe(n.don_vi), n.gia_tri, n.ke_hoach, n.trang_thai, n.can_xac_nhan, safe(n.ghi_chu), a.ten, t, c.ma)];
+    if (dots) { st.push(env.DB.prepare('DELETE FROM dot_thu WHERE hd_ma = ?').bind(c.ma)); for (const x of dots) st.push(env.DB.prepare('INSERT INTO dot_thu(hd_ma,dot,ty_le,so_tien,han) VALUES(?,?,?,?,?)').bind(c.ma, x[0], x[1], x[2], x[3])); }
+    st.push(logStmt(env, a.username, 'SUA_HOP_DONG', c.ma, Object.keys(d).filter((k) => k !== 'ma').join(',')));
+    await env.DB.batch(st);
+    return { ok: true };
+  },
+
+  async canhBaoHopDong(env, req, a) {
+    const sale = a.role === 'Sale', q = env.DB.prepare('SELECT * FROM contracts' + hdVisible(a));
+    const ds = await phanTichHD(env, (sale ? await q.bind(a.ten).all() : await q.all()).results);
+    const cb = canhBaoHD(ds);
+    return { ok: true, canhBao: cb, tong: cb.thu.length + cb.het.length + cb.tienDo.length + cb.imLang.length };
+  },
+
+  async doanhThu(env, req, a, d) {
+    const b = bkk(), cur = b.getUTCFullYear() + '-' + ('0' + (b.getUTCMonth() + 1)).slice(-2);
+    const th = /^\d{4}-(0[1-9]|1[0-2])$/.test(String(d.thang || '')) ? String(d.thang) : cur;
+    const prev = (m, k) => { const [y, mo] = m.split('-').map(Number); const p = new Date(Date.UTC(y, mo - 1 - k, 1)); return p.getUTCFullYear() + '-' + ('0' + (p.getUTCMonth() + 1)).slice(-2); };
+    const m0 = prev(th, 11), pm = prev(th, 1);
+    const all = (await env.DB.prepare('SELECT * FROM contracts').all()).results, ds = await phanTichHD(env, all);
+    const live = ds.filter((c) => c.trang_thai !== 'Hủy');
+    const [ky, thu, thuC] = await env.DB.batch([
+      env.DB.prepare("SELECT substr(ngay_ky,1,7) AS m, COUNT(*) AS n, SUM(gia_tri) AS s FROM contracts WHERE trang_thai <> 'Hủy' AND ngay_ky >= ? AND ngay_ky <= ? GROUP BY m").bind(m0 + '-01', th + '-31'),
+      env.DB.prepare('SELECT substr(ngay,1,7) AS m, SUM(so_tien) AS s FROM thu_tien WHERE ngay >= ? AND ngay <= ? GROUP BY m').bind(m0 + '-01', th + '-31'),
+      env.DB.prepare("SELECT c.sale AS k, SUM(t.so_tien) AS s FROM thu_tien t JOIN contracts c ON c.ma = t.hd_ma WHERE substr(t.ngay,1,7) = ? GROUP BY c.sale").bind(th),
+    ]);
+    const mk = {}, mt = {}; for (const x of ky.results) mk[x.m] = x; for (const x of thu.results) mt[x.m] = x.s || 0;
+    const xuHuong = []; for (let i = 11; i >= 0; i--) { const m = prev(th, i); xuHuong.push({ m, ky: tien((mk[m] || {}).s), n: (mk[m] || {}).n || 0, thu: tien(mt[m]) }); }
+    const conPhaiTong = live.reduce((s, c) => s + c.conPhai, 0), quaHan = live.filter((c) => c.quaHanSo > 0 && c.trang_thai === 'Đang thực hiện');
+    const bySale = {}; const g = (k) => (bySale[k] = bySale[k] || { k, ky: 0, n: 0, thu: 0, conPhai: 0 });
+    for (const c of live) { const o = g(c.sale); o.conPhai += c.conPhai; if (c.ngay_ky.slice(0, 7) === th) { o.ky += c.gia_tri; o.n++; } }
+    for (const x of thuC.results) g(x.k).thu = tien(x.s);
+    const byLoai = {}; for (const c of live) if (c.ngay_ky.slice(0, 7) === th) { const o = (byLoai[c.loai] = byLoai[c.loai] || { k: c.loai, n: 0, ky: 0 }); o.n++; o.ky += c.gia_tri; }
+    const thieu = (await env.DB.prepare("SELECT COUNT(*) AS c FROM leads WHERE giai_doan = 'Đã ký' AND ma NOT IN (SELECT lead_ma FROM contracts WHERE lead_ma <> '')").first()).c;
+    const cur_ = xuHuong[11], pre_ = xuHuong[10], nx = [];
+    const add = (loai, text) => nx.push({ loai, text }), vnd = (v) => tien(v).toLocaleString('vi-VN') + ' đ';
+    if (pre_.thu > 0) { const dl = cur_.thu - pre_.thu; add(dl >= 0 ? 'tot' : 'canh_bao', `Thực thu tháng này ${dl >= 0 ? 'cao hơn' : 'thấp hơn'} tháng trước ${vnd(Math.abs(dl))} (${Math.round(Math.abs(dl) / pre_.thu * 100)}%).`); }
+    if (cur_.ky > 0 && cur_.thu < cur_.ky * 0.5 && th === cur) add('goi_y', `Doanh số ký ${vnd(cur_.ky)} nhưng thực thu mới ${vnd(cur_.thu)}: đẩy việc thu tiền các đợt đã đến hạn.`);
+    if (quaHan.length) add('canh_bao', `${quaHan.length} hợp đồng đang quá hạn thu, tổng ${vnd(quaHan.reduce((s, c) => s + c.quaHanSo, 0))}.`);
+    if (thieu) add('canh_bao', `${thieu} lead đang "Đã ký" nhưng chưa có hợp đồng: bổ sung để doanh thu đầy đủ.`);
+    if (conPhaiTong > 0) add('goi_y', `Còn phải thu toàn bộ hợp đồng đang chạy: ${vnd(conPhaiTong)}.`);
+    const cb = canhBaoHD(live);
+    return { ok: true, thang: th, thangTruoc: pm, ky: { s: cur_.ky, n: cur_.n }, kyTruoc: { s: pre_.ky, n: pre_.n }, thu: cur_.thu, thuTruoc: pre_.thu, conPhai: conPhaiTong, xuHuong,
+      sale: Object.values(bySale).sort((x, y) => y.ky - x.ky), loai: Object.values(byLoai), quaHan: quaHan.map((c) => ({ ma: c.ma, khach: c.khach, sale: c.sale, soTien: c.quaHanSo })), thieuHD: thieu,
+      canhBao: { thu: cb.thu.length, het: cb.het.length, tienDo: cb.tienDo.length, imLang: cb.imLang.length }, nhanXet: nx };
+  },
+
   // ---- quan tri ----
   async saoLuu(env, req, a) {
     // Admin: xuat toan bo du lieu thanh file SQL (INSERT) de luu local. Khong gom phien dang nhap.
-    const T = ['users', 'catalog', 'counters', 'leads', 'stage_history', 'audit'];
+    const T = ['users', 'catalog', 'counters', 'leads', 'stage_history', 'audit', 'contracts', 'dot_thu', 'thu_tien', 'thuc_thi'];
     const q = v => v === null || v === undefined ? 'NULL' : typeof v === 'number' ? String(v) : "'" + String(v).replace(/'/g, "''") + "'";
     const out = ['-- Dat Cang Sale - ban sao luu ' + new Date().toISOString(), '-- Khoi phuc: chay file nay tren D1 trong sau khi chay migrations (bang rong). CHUA PII khach + mat khau da bam.'];
     const dem = {};
@@ -428,6 +677,7 @@ const API = {
 const PERM = {
   login: 'public', phien: 'public', logout: 'public', doiMatKhau: 'auth', layDanhMuc: 'use',
   themLead: 'use', danhSachLead: 'use', doiGiaiDoan: 'use', capNhatSdt: 'use', chuyenSale: 'use', lichSu: 'use', chiTietLead: 'use', baoCao: 'use', thongKe: 'use',
+  taoHopDong: 'use', danhSachHopDong: 'use', chiTietHopDong: 'use', ghiThucThi: 'use', canhBaoHopDong: 'use', ghiThuTien: 'admin', suaHopDong: 'admin', doanhThu: 'admin',
   danhSachTaiKhoan: 'admin', taoTaiKhoan: 'admin', datLaiMatKhau: 'admin', tatTaiKhoan: 'admin', saoLuu: 'admin',
 };
 

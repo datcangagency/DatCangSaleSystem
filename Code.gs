@@ -276,3 +276,26 @@ function khoiTaoThu() {       // tao 2 tai khoan thu, KHONG dung ten that
   taoTaiKhoan('admin', 'Admin', 'Admin');
   taoTaiKhoan('sale_thu', 'Trung', 'Sale');   // ten khop danh muc Sale de thu
 }
+
+/** Tu kiem tra tren Google that: tao tai khoan tam, chay dang nhap, doi MK, them lead, doi giai doan, roi tat tai khoan tam. Chi dung cho ban thu. */
+function selfTest() {
+  var out = [], ok = function (c, n) { out.push((c ? 'PASS ' : 'FAIL ') + n); };
+  var u = 'selftest' + Math.floor(Math.random() * 1e6), p1 = 'TamThoi#2026ab', p2 = 'MatKhauMoi#2026';
+  var salt = Utilities.getUuid();
+  sh_('Tài khoản').appendRow([u, 'Trung', 'Sale', salt, hash_(p1, salt), true, 0, '', true]);
+  var r = login(u, 'sai'); ok(!r.ok, 'sai mat khau bi tu choi');
+  r = login(u, p1); ok(r.ok && r.user.doiMK, 'dang nhap dung, bat doi MK');
+  var t = r.token;
+  r = doiMatKhau(t, p1, p2); ok(r.ok, 'doi mat khau');
+  r = login(u, p2); ok(r.ok && !r.user.doiMK, 'dang nhap mat khau moi'); t = r.token;
+  var sdt = '09' + ('00000000' + Math.floor(Math.random() * 1e8)).slice(-8);
+  var d = { ngayNhan: fmt_(now_(), 'yyyy-MM-dd'), nguon: 'Khách cho số', ten: 'KHACH THU TU DONG', sdt: sdt, sale: 'Trung', giaTri: '1000000', tomLuoc: 'du lieu thu', hanhDong: 'Goi thu', ngayHanhDong: fmt_(now_(), 'yyyy-MM-dd') };
+  r = themLead(t, d); ok(r.ok && /^L-\d{4}-\d{3}$/.test(r.ma), 'them lead ma tu sinh ' + r.ma);
+  var ma = r.ma;
+  r = themLead(t, d); ok(!r.ok, 'trung SDT bi chan');
+  r = doiGiaiDoan(t, ma, 'Đã liên hệ', '', 'Gui bao gia', fmt_(now_(), 'yyyy-MM-dd')); ok(r.ok, 'doi giai doan');
+  r = danhSachLead(t); ok(r.ok && r.leads.some(function (l) { return l.ma === ma && l.giaiDoan === 'Đã liên hệ'; }), 'danh sach co lead da doi giai doan');
+  logout(t); r = danhSachLead(t); ok(r.expired === true, 'dang xuat het hieu luc');
+  var f = findUser_(u); sh_('Tài khoản').getRange(f.row, 9).setValue(false);
+  Logger.log(out.join('\n') + '\n(tai khoan tam ' + u + ' da tat; lead thu ' + ma + ' nam trong Trang tinh thu)');
+}

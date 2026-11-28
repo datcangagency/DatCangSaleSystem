@@ -142,11 +142,14 @@ function normLink(v) {
   return /^[a-z0-9.-]+\.[a-z]{2,}(\/.*)?$/.test(x) ? x : '';
 }
 
+// Tên cũ "Mình tự tìm" đổi thành "Tự tìm" (dữ liệu và trang cũ vẫn gửi tên cũ đều được hiểu).
+const tenCach = (v) => (v === 'Mình tự tìm' ? 'Tự tìm' : v);
+
 async function catalog(env) {
   const { results } = await env.DB.prepare('SELECT kind, value FROM catalog ORDER BY kind, ord').all();
   const o = { giaiDoan: [], nguon: [], nguonLink: [], cachSdt: [], sale: [], qlda: [], lyDo: [], mucTiemNang: [], loaiViec: [] };
   const map = { giai_doan: 'giaiDoan', nguon: 'nguon', nguon_link: 'nguonLink', cach_sdt: 'cachSdt', sale: 'sale', qlda: 'qlda', ly_do: 'lyDo', muc_tiem_nang: 'mucTiemNang', loai_viec: 'loaiViec' };
-  for (const r of results) if (map[r.kind]) o[map[r.kind]].push(r.value);
+  for (const r of results) if (map[r.kind]) o[map[r.kind]].push(r.kind === 'cach_sdt' ? tenCach(r.value) : r.value);
   return o;
 }
 
@@ -176,10 +179,14 @@ async function newSession(env, username) {
   return tok;
 }
 
+// Số sao ưu tiên 0..3: có SĐT thì tối thiểu 1 sao; 2 và 3 sao do người dùng chọn.
+const soSao = (r) => Math.max(Number(r.uu_tien) || 0, r.sdt ? 1 : 0);
+const SQL_SAO = "MAX(uu_tien, CASE WHEN sdt <> '' THEN 1 ELSE 0 END)";
+
 const leadOut = (r) => ({
-  ma: r.ma, ngayNhan: r.ngay_nhan, ten: r.ten, sdt: r.sdt, link: r.link, nguon: r.nguon, cachSdt: r.cach_sdt, sale: r.sale,
+  ma: r.ma, ngayNhan: r.ngay_nhan, ten: r.ten, sdt: r.sdt, link: r.link, nguon: r.nguon, cachSdt: tenCach(r.cach_sdt), sale: r.sale,
   giaiDoan: r.giai_doan, ngayDoiGd: r.ngay_doi_gd, mucTiemNang: r.muc_tiem_nang, tomLuoc: r.tom_luoc, loaiViec: r.loai_viec,
-  hanhDong: r.hanh_dong, ngayHd: r.ngay_hd, giaTri: r.gia_tri, lyDo: r.ly_do, ghiChu: r.ghi_chu, uuTien: !!r.uu_tien,
+  hanhDong: r.hanh_dong, ngayHd: r.ngay_hd, giaTri: r.gia_tri, lyDo: r.ly_do, ghiChu: r.ghi_chu, sao: soSao(r), uuTien: soSao(r) > 0,
 });
 
 async function findDup(env, sdt, linkKey, exceptMa) {
@@ -232,7 +239,7 @@ const API = {
     const ten = String(d.ten || '').trim(), tl = String(d.tomLuoc || '').trim(), gc = String(d.ghiChu || '').trim(), hd = String(d.hanhDong || '').trim();
     const rawSdt = String(d.sdt || '').trim(), sdt = rawSdt ? normPhone(rawSdt) : '';
     const rawLink = useLink ? String(d.link || '').trim() : '', linkKey = rawLink ? normLink(rawLink) : '';
-    let cach = String(d.cachSdt || '').trim();
+    let cach = tenCach(String(d.cachSdt || '').trim());
     const sale = a.role === 'Sale' ? a.ten : String(d.sale || '').trim();
     const gia = d.giaTri === '' || d.giaTri == null ? null : Number(d.giaTri);
     const e = [];
@@ -242,7 +249,7 @@ const API = {
     if (rawLink.length > 300) e.push('Link tối đa 300 ký tự.');
     if (useLink && !sdt && !linkKey) e.push('Nguồn này cần SĐT hoặc link Facebook/fanpage của khách.');
     if (!useLink && !sdt) e.push('Nguồn này bắt buộc có SĐT.');
-    if (sdt && !dm.cachSdt.includes(cach)) e.push('Chọn cách có SĐT: Khách cho hay Mình tự tìm.');
+    if (sdt && !dm.cachSdt.includes(cach)) e.push('Chọn cách có SĐT: Khách cho hay Tự tìm.');
     if (!sdt) cach = '';
     if (!dm.nguon.includes(String(d.nguon))) e.push('Chọn nguồn từ danh sách.');
     if (!dm.sale.includes(sale)) e.push('Chọn Sale phụ trách từ danh sách.');
@@ -273,7 +280,7 @@ const API = {
   },
 
   async danhSachLead(env) {
-    const { results } = await env.DB.prepare('SELECT * FROM leads ORDER BY uu_tien DESC, tao_luc DESC LIMIT 500').all();
+    const { results } = await env.DB.prepare(`SELECT * FROM leads ORDER BY ${SQL_SAO} DESC, tao_luc DESC LIMIT 3000`).all();
     return { ok: true, leads: results.map(leadOut) };
   },
 
@@ -317,9 +324,9 @@ const API = {
 
   async capNhatSdt(env, req, a, d) {
     const dm = await catalog(env);
-    const sdt = normPhone(d.sdt), cach = String(d.cachSdt || '');
+    const sdt = normPhone(d.sdt), cach = tenCach(String(d.cachSdt || ''));
     if (!sdt) return fail('SĐT không hợp lệ (10 hoặc 11 số, bắt đầu bằng 0).');
-    if (!dm.cachSdt.includes(cach)) return fail('Chọn cách có SĐT: Khách cho hay Mình tự tìm.');
+    if (!dm.cachSdt.includes(cach)) return fail('Chọn cách có SĐT: Khách cho hay Tự tìm.');
     const l = await env.DB.prepare('SELECT * FROM leads WHERE ma = ?').bind(String(d.ma || '')).first();
     if (!l) return fail('Không tìm thấy lead.');
     if (a.role === 'Sale' && l.sale !== a.ten) return fail('Lead này không thuộc Sale của bạn.');
@@ -327,8 +334,8 @@ const API = {
     const t = now(), had = !!l.sdt;
     try {
       await env.DB.batch([
-        env.DB.prepare('UPDATE leads SET sdt=?, cach_sdt=?, uu_tien=1, ngay_co_sdt=?, sua_boi=?, sua_luc=? WHERE ma=?').bind(sdt, cach, had ? l.ngay_co_sdt : t, a.ten, t, l.ma),
-        logStmt(env, a.username, 'CAP_NHAT_SDT', l.ma, (had ? 'doi SDT' : 'them SDT, len uu tien') + ' | ' + cach),
+        env.DB.prepare('UPDATE leads SET sdt=?, cach_sdt=?, uu_tien=MAX(uu_tien,1), ngay_co_sdt=?, sua_boi=?, sua_luc=? WHERE ma=?').bind(sdt, cach, had ? l.ngay_co_sdt : t, a.ten, t, l.ma),
+        logStmt(env, a.username, 'CAP_NHAT_SDT', l.ma, (had ? 'doi SDT' : 'them SDT') + ' | ' + cach),
       ]);
     } catch (err) { if (/UNIQUE/i.test(String(err))) return fail('SĐT này đã có ở lead khác.'); throw err; }
     return { ok: true, uuTien: true };
@@ -349,6 +356,43 @@ const API = {
     return { ok: true };
   },
 
+  // Đổi nhanh một trường ngay trên danh sách lead.
+  async suaNhanh(env, req, a, d) {
+    const truong = String(d.truong || ''), v = String(d.giaTri ?? '').trim();
+    const l = await env.DB.prepare('SELECT * FROM leads WHERE ma = ?').bind(String(d.ma || '')).first();
+    if (!l) return fail('Không tìm thấy lead.');
+    if (a.role === 'Sale' && l.sale !== a.ten) return fail('Lead này không thuộc Sale của bạn.');
+    const dm = await catalog(env);
+    let cot, nhan, moi = v, cu;
+    if (truong === 'sao') {
+      const nen = l.sdt ? 1 : 0, n = v === '' ? NaN : Number(v);
+      if (!(n === nen || n === 2 || n === 3)) return fail(l.sdt ? 'Lead đã có SĐT: chọn 1, 2 hoặc 3 sao.' : 'Lead chưa có SĐT: chọn 0, 2 hoặc 3 sao.');
+      cot = 'uu_tien'; nhan = 'Số sao'; moi = n; cu = soSao(l);
+    } else if (truong === 'mucTiemNang') {
+      if (v !== 'Chưa phân loại' && !dm.mucTiemNang.includes(v)) return fail('Mức tiềm năng không hợp lệ.');
+      cot = 'muc_tiem_nang'; nhan = 'Mức tiềm năng'; cu = l.muc_tiem_nang;
+    } else if (truong === 'nguon') {
+      if (!dm.nguon.includes(v)) return fail('Chọn nguồn từ danh sách.');
+      if (!l.sdt && !(dm.nguonLink.includes(v) && l.link)) return fail('Nguồn này cần SĐT của khách (nguồn ad/hội nhóm thì cần SĐT hoặc link).');
+      cot = 'nguon'; nhan = 'Nguồn'; cu = l.nguon;
+    } else if (truong === 'cachSdt') {
+      moi = tenCach(v);
+      if (!l.sdt) return fail('Lead chưa có SĐT.');
+      if (!dm.cachSdt.includes(moi)) return fail('Chọn cách có SĐT: Khách cho hay Tự tìm.');
+      cot = 'cach_sdt'; nhan = 'Cách có SĐT'; cu = tenCach(l.cach_sdt);
+    } else if (truong === 'loaiViec') {
+      if (CLOSED.includes(l.giai_doan)) return fail('Lead đã đóng, không có việc tiếp theo.');
+      if (!dm.loaiViec.includes(v)) return fail('Chọn loại việc tiếp theo.');
+      cot = 'loai_viec'; nhan = 'Loại việc tiếp theo'; cu = l.loai_viec;
+    } else return fail('Không đổi được trường này.');
+    if (moi === cu) return { ok: true };
+    await env.DB.batch([
+      env.DB.prepare(`UPDATE leads SET ${cot}=?, sua_boi=?, sua_luc=? WHERE ma=?`).bind(moi, a.ten, now(), l.ma),
+      logStmt(env, a.username, 'SUA_NHANH', l.ma, `${nhan}: ${cu === '' || cu == null ? '(trống)' : cu} → ${moi}`),
+    ]);
+    return { ok: true };
+  },
+
   async lichSu(env, req, a, d) {
     const { results } = await env.DB.prepare('SELECT tu, den, luc, boi, ghi_chu FROM stage_history WHERE ma = ? ORDER BY id').bind(String(d.ma || '')).all();
     return { ok: true, ls: results };
@@ -359,11 +403,11 @@ const API = {
     const l = await env.DB.prepare('SELECT * FROM leads WHERE ma = ?').bind(String(d.ma || '')).first();
     if (!l) return fail('Không tìm thấy lead.');
     const hist = (await env.DB.prepare('SELECT tu, den, luc, boi, ghi_chu FROM stage_history WHERE ma = ? ORDER BY id').bind(l.ma).all()).results;
-    const act = (await env.DB.prepare("SELECT luc, usr, action, detail FROM audit WHERE obj = ? AND action IN ('THEM_LEAD','CAP_NHAT_SDT','CHUYEN_SALE') ORDER BY id").bind(l.ma).all()).results;
+    const act = (await env.DB.prepare("SELECT luc, usr, action, detail FROM audit WHERE obj = ? AND action IN ('THEM_LEAD','CAP_NHAT_SDT','CHUYEN_SALE','SUA_NHANH') ORDER BY id").bind(l.ma).all()).results;
     const ten = {}; for (const u of (await env.DB.prepare('SELECT username, ten FROM users').all()).results) ten[u.username] = u.ten;
     const ev = [];
     if (!act.some((x) => x.action === 'THEM_LEAD')) ev.push({ luc: l.tao_luc, loai: 'Tạo lead', noiDung: 'Nguồn ' + l.nguon + ', Sale ' + l.sale, boi: '' });
-    for (const x of act) ev.push({ luc: x.luc, loai: x.action === 'THEM_LEAD' ? 'Tạo lead' : x.action === 'CHUYEN_SALE' ? 'Chuyển Sale' : 'SĐT', noiDung: x.detail.replace(/co SDT/g, 'có SĐT').replace(/chua co SDT/g, 'chưa có SĐT').replace(/doi SDT/g, 'đổi SĐT').replace(/them SDT, len uu tien/g, 'thêm SĐT, lên diện ưu tiên'), boi: ten[x.usr] || x.usr });
+    for (const x of act) ev.push({ luc: x.luc, loai: x.action === 'THEM_LEAD' ? 'Tạo lead' : x.action === 'CHUYEN_SALE' ? 'Chuyển Sale' : x.action === 'SUA_NHANH' ? 'Sửa thông tin' : 'SĐT', noiDung: x.detail.replace(/co SDT/g, 'có SĐT').replace(/chua co SDT/g, 'chưa có SĐT').replace(/doi SDT/g, 'đổi SĐT').replace(/them SDT, len uu tien/g, 'thêm SĐT, lên diện ưu tiên').replace(/them SDT/g, 'thêm SĐT'), boi: ten[x.usr] || x.usr });
     for (const h of hist) ev.push({ luc: h.luc, loai: 'Đổi giai đoạn', noiDung: h.tu + ' → ' + h.den + (h.ghi_chu ? ' (' + h.ghi_chu + ')' : ''), boi: h.boi });
     ev.sort((x, y) => y.luc - x.luc);
     return { ok: true, lead: { ...leadOut(l), ngayCoSdt: l.ngay_co_sdt, taoLuc: l.tao_luc, suaBoi: l.sua_boi, suaLuc: l.sua_luc }, ev };
@@ -392,7 +436,7 @@ const API = {
       q(`SELECT sale AS k, COUNT(*) AS c FROM leads WHERE giai_doan NOT IN (${ph}) GROUP BY sale`, ...CLOSED),
       q(`SELECT ma, ten, sale, giai_doan, loai_viec, hanh_dong, ngay_hd FROM leads WHERE giai_doan NOT IN (${ph}) AND ngay_hd <> '' AND ngay_hd < ? ORDER BY ngay_hd LIMIT 50`, ...CLOSED, today),
       q("SELECT ly_do AS k, COUNT(*) AS c FROM leads WHERE giai_doan IN ('Mất','Không tiềm năng') AND ngay_doi_gd >= ? AND ngay_doi_gd < ? GROUP BY ly_do", R.ms, R.me),
-      q("SELECT CASE WHEN sdt = '' THEN 'Chưa có SĐT' ELSE cach_sdt END AS k, COUNT(*) AS c FROM leads WHERE ngay_nhan >= ? AND ngay_nhan <= ? GROUP BY 1", R.t, R.e),
+      q("SELECT CASE WHEN sdt = '' THEN 'Chưa có SĐT' WHEN cach_sdt = 'Mình tự tìm' THEN 'Tự tìm' ELSE cach_sdt END AS k, COUNT(*) AS c FROM leads WHERE ngay_nhan >= ? AND ngay_nhan <= ? GROUP BY 1", R.t, R.e),
       q(`SELECT COUNT(*) AS c FROM leads WHERE giai_doan NOT IN (${ph})`, ...CLOSED),
     ]);
     const map = (x) => Object.fromEntries(x.results.map((r) => [r.k || '(chưa ghi)', r.c]));
@@ -435,7 +479,7 @@ const API = {
       q("SELECT ly_do AS k, COUNT(*) AS c FROM leads WHERE giai_doan IN ('Mất','Không tiềm năng') AND ngay_doi_gd >= ? AND ngay_doi_gd < ? GROUP BY ly_do", msR[0], msR[1]),
       q('SELECT muc_tiem_nang AS k, COUNT(*) AS c FROM leads WHERE ngay_nhan >= ? AND ngay_nhan <= ? GROUP BY muc_tiem_nang', R.t, R.e),
       q(`SELECT ma, ten, sale, giai_doan, loai_viec, hanh_dong, ngay_hd FROM leads WHERE giai_doan NOT IN (${ph}) AND ngay_hd <> '' AND ngay_hd < ? ORDER BY ngay_hd LIMIT 30`, ...CLOSED, today),
-      q(`SELECT ma, ten, sale, giai_doan, uu_tien, ngay_hd FROM leads WHERE giai_doan NOT IN (${ph}) AND muc_tiem_nang = 'Tiềm năng' ORDER BY uu_tien DESC, tao_luc DESC LIMIT 10`, ...CLOSED),
+      q(`SELECT ma, ten, sale, giai_doan, ${SQL_SAO} AS uu_tien, ngay_hd FROM leads WHERE giai_doan NOT IN (${ph}) AND muc_tiem_nang = 'Tiềm năng' ORDER BY ${SQL_SAO} DESC, tao_luc DESC LIMIT 10`, ...CLOSED),
       q(`SELECT COUNT(*) AS c FROM leads WHERE giai_doan NOT IN (${ph})`, ...CLOSED),
     ]);
     const mp = (x) => Object.fromEntries(x.results.map((r) => [r.d, r.c]));
@@ -676,7 +720,7 @@ const API = {
 // quyen: 'public' = khong can dang nhap; 'auth' = da dang nhap (ke ca dang bat buoc doi MK); 'use' = da doi MK; 'admin'
 const PERM = {
   login: 'public', phien: 'public', logout: 'public', doiMatKhau: 'auth', layDanhMuc: 'use',
-  themLead: 'use', danhSachLead: 'use', doiGiaiDoan: 'use', capNhatSdt: 'use', chuyenSale: 'use', lichSu: 'use', chiTietLead: 'use', baoCao: 'use', thongKe: 'use',
+  themLead: 'use', danhSachLead: 'use', doiGiaiDoan: 'use', capNhatSdt: 'use', suaNhanh: 'use', chuyenSale: 'use', lichSu: 'use', chiTietLead: 'use', baoCao: 'use', thongKe: 'use',
   taoHopDong: 'use', danhSachHopDong: 'use', chiTietHopDong: 'use', ghiThucThi: 'use', canhBaoHopDong: 'use', ghiThuTien: 'admin', suaHopDong: 'admin', doanhThu: 'admin',
   danhSachTaiKhoan: 'admin', taoTaiKhoan: 'admin', datLaiMatKhau: 'admin', tatTaiKhoan: 'admin', saoLuu: 'admin',
 };

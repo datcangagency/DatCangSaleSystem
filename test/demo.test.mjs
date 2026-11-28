@@ -9,7 +9,7 @@ const L = { ngayNhan: '2026-11-20', ngayHanhDong: '2026-12-01' };
 const mk = async (o) => api('themLead', { ...L, loaiViec: 'Gọi lại', ...o }, adm);
 const r = [];
 r.push(await mk({ ten: 'Mau 1 Spa Hoa Sen', sdt: '0911000001', cachSdt: 'Khách cho', nguon: 'Chạy ad Facebook', link: 'facebook.com/mau1', sale: 'Trung', tomLuoc: 'Spa, cần chạy ads' }));
-r.push(await mk({ ten: 'Mau 2 Nha hang Bien Xanh', sdt: '0911000002', cachSdt: 'Mình tự tìm', nguon: 'Tìm trong hội nhóm', sale: 'An', ghiChu: 'Hẹn gọi lại sau 5h' }));
+r.push(await mk({ ten: 'Mau 2 Nha hang Bien Xanh', sdt: '0911000002', cachSdt: 'Tự tìm', nguon: 'Tìm trong hội nhóm', sale: 'An', ghiChu: 'Hẹn gọi lại sau 5h' }));
 r.push(await mk({ ten: 'Mau 3 Cua hang Thoi trang X', nguon: 'Chạy ad Facebook', link: 'https://www.facebook.com/mau3shop', sale: 'Linh' }));
 r.push(await mk({ ten: 'Mau 4 Khach san Cat Ba', sdt: '0911000004', cachSdt: 'Khách cho', nguon: 'Được giới thiệu', sale: 'Dương', giaTri: 25000000 }));
 r.push(await mk({ ten: 'Mau 5 Phong kham Nha khoa', sdt: '0911000005', cachSdt: 'Khách cho', nguon: 'Hội doanh nghiệp', sale: 'Trung' }));

@@ -7,6 +7,7 @@ const MIN_PASS = 10;
 const ROLES = ['Admin', 'QLDA', 'Sale'];
 const CLOSED = ['Đã ký', 'Mất', 'Không tiềm năng'];
 const LOSS = ['Mất', 'Không tiềm năng'];
+const DA_GUI = 'Đã gửi Proposal';   // giai đoạn bắt buộc có link Proposal
 
 const enc = new TextEncoder();
 const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
@@ -142,6 +143,10 @@ function normLink(v) {
   return /^[a-z0-9.-]+\.[a-z]{2,}(\/.*)?$/.test(x) ? x : '';
 }
 
+// Link Proposal phải là địa chỉ web đầy đủ (http/https), không chứa khoảng trắng.
+const linkHopLe = (v) => v.length <= 500 && /^https?:\/\/[^\s"'<>\/]+\.[^\s"'<>]+$/i.test(v);
+const LOI_LINK = 'Link Proposal không hợp lệ: dán đầy đủ địa chỉ bắt đầu bằng http:// hoặc https://.';
+
 // Tên cũ "Mình tự tìm" đổi thành "Tự tìm" (dữ liệu và trang cũ vẫn gửi tên cũ đều được hiểu).
 const tenCach = (v) => (v === 'Mình tự tìm' ? 'Tự tìm' : v);
 
@@ -186,7 +191,7 @@ const SQL_SAO = "MAX(uu_tien, CASE WHEN sdt <> '' THEN 1 ELSE 0 END)";
 const leadOut = (r) => ({
   ma: r.ma, ngayNhan: r.ngay_nhan, ten: r.ten, sdt: r.sdt, link: r.link, nguon: r.nguon, cachSdt: tenCach(r.cach_sdt), sale: r.sale,
   giaiDoan: r.giai_doan, ngayDoiGd: r.ngay_doi_gd, mucTiemNang: r.muc_tiem_nang, tomLuoc: r.tom_luoc, loaiViec: r.loai_viec,
-  hanhDong: r.hanh_dong, ngayHd: r.ngay_hd, giaTri: r.gia_tri, lyDo: r.ly_do, ghiChu: r.ghi_chu, sao: soSao(r), uuTien: soSao(r) > 0,
+  hanhDong: r.hanh_dong, ngayHd: r.ngay_hd, giaTri: r.gia_tri, lyDo: r.ly_do, ghiChu: r.ghi_chu, linkProposal: r.link_proposal || '', sao: soSao(r), uuTien: soSao(r) > 0,
 });
 
 async function findDup(env, sdt, linkKey, exceptMa) {
@@ -306,10 +311,15 @@ const API = {
       if (!validDate(ngay)) return fail('Ngày hành động không hợp lệ.');
       if (hd.length > 300) return fail('Mô tả việc tiếp theo tối đa 300 ký tự.');
     }
+    const cuLink = l.link_proposal || '', moiLink = gd === DA_GUI ? String(d.linkProposal || '').trim() : '';
+    if (moiLink && !linkHopLe(moiLink)) return fail(LOI_LINK);
+    if (gd === DA_GUI && l.giai_doan !== DA_GUI && !(moiLink || cuLink)) return fail('Chuyển sang Đã gửi Proposal cần dán link Proposal.');
     const sets = [env.DB.prepare(
       'UPDATE leads SET giai_doan=?, ngay_doi_gd=?, muc_tiem_nang=?, ly_do=?, loai_viec=?, hanh_dong=?, ngay_hd=?, sua_boi=?, sua_luc=? WHERE ma=?'
     ).bind(gd, t, muc, lyDo, loai, safe(hd), ngay, a.ten, t, l.ma)];
     if (gd !== l.giai_doan) sets.push(env.DB.prepare('INSERT INTO stage_history(ma,tu,den,luc,boi,ghi_chu) VALUES(?,?,?,?,?,?)').bind(l.ma, l.giai_doan, gd, t, a.ten, safe(ghiChu || lyDo)));
+    if (moiLink && moiLink !== cuLink) sets.push(env.DB.prepare('UPDATE leads SET link_proposal=? WHERE ma=?').bind(moiLink, l.ma),
+      logStmt(env, a.username, 'SUA_NHANH', l.ma, `Link Proposal: ${cuLink || '(trống)'} → ${moiLink}`));
     let maHD = '';
     if (gd === 'Đã ký' && l.giai_doan !== 'Đã ký' && !(await env.DB.prepare('SELECT 1 FROM contracts WHERE lead_ma = ?').bind(l.ma).first())) {
       if (a.role === 'QLDA') return fail('Chỉ Sale hoặc Admin được chuyển lead sang Đã ký (cần tạo hợp đồng).');
@@ -384,6 +394,9 @@ const API = {
       if (CLOSED.includes(l.giai_doan)) return fail('Lead đã đóng, không có việc tiếp theo.');
       if (!dm.loaiViec.includes(v)) return fail('Chọn loại việc tiếp theo.');
       cot = 'loai_viec'; nhan = 'Loại việc tiếp theo'; cu = l.loai_viec;
+    } else if (truong === 'linkProposal') {
+      if (!linkHopLe(v)) return fail(LOI_LINK);
+      cot = 'link_proposal'; nhan = 'Link Proposal'; cu = l.link_proposal || '';
     } else return fail('Không đổi được trường này.');
     if (moi === cu) return { ok: true };
     await env.DB.batch([
@@ -510,7 +523,7 @@ const API = {
     const mo = sale.filter((x) => x.mo > 0).sort((x, y) => y.mo - x.mo);
     if (mo.length >= 2 && mo[0].mo >= 2 * mo[mo.length - 1].mo && mo[0].mo - mo[mo.length - 1].mo >= 10) add('goi_y', `Tải lead không đều: ${mo[0].k} đang giữ ${mo[0].mo} lead mở, ${mo[mo.length - 1].k} chỉ ${mo[mo.length - 1].mo}. Cân nhắc chuyển bớt (nút Chuyển Sale).`);
     if (lyDo.length) add('goi_y', `Lý do mất/không tiềm năng nhiều nhất trong kỳ: ${lyDo[0].k} (${lyDo[0].c}).`);
-    const bu = giaiDoan.filter((x) => x.c > 0); const hanhTrinh = ['Mới', 'Đã liên hệ', 'Hẹn tư vấn', 'Đã gửi proposal/báo giá', 'Đàm phán', 'Đã ký'];
+    const bu = giaiDoan.filter((x) => x.c > 0); const hanhTrinh = ['Mới', 'Đã liên hệ', 'Hẹn tư vấn', 'Khách chờ Proposal', 'Đã gửi Proposal', 'Đàm phán', 'Đã ký'];
     if (C.nhan >= 10 && (gdM['Mới'] || 0) / C.nhan > 0.6) add('canh_bao', `${pc((gdM['Mới'] || 0) / C.nhan)} lead nhận trong kỳ vẫn ở giai đoạn Mới: cần liên hệ sớm hơn.`);
     const hot2 = hot.results.length; if (hot2) add('goi_y', `${hot2} lead mức "Tiềm năng" đang mở (xem danh sách ưu tiên bên dưới).`);
     return { ok: true, kieu, den: A, ky: { t: R.t, e: R.e }, kyTruoc: { t: P.t, e: P.e }, homNay: today, xuHuong: xuong, tong: C, truoc: Pv, tongMo, khongViec, quaHanN,

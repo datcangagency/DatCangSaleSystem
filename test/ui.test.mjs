@@ -33,7 +33,7 @@ const sel = (re, f) => row(re).querySelector(`select[data-f="${f}"]`);
 const pick = async (re, f, v) => { const e = sel(re, f); e.value = v; e.dispatchEvent(new w.Event('change')); await wait(600); };
 const R1 = /Khach UI(?! 2)/, R2 = /Khach UI 2/;
 const heads = [...$('lTable').querySelectorAll('th')].map((x) => x.textContent);
-ok(heads.join('|') === 'Khách hàng|Liên hệ|Nguồn|Ưu tiên|Giai đoạn|Proposal|Phụ trách|Việc tiếp theo', 'cot theo giao dien B: ' + heads.join('|'));
+ok(heads.join('|') === 'Khách hàng|Liên hệ|Nguồn|Ưu tiên|Giai đoạn|Hồ sơ|Phụ trách|Việc tiếp theo', 'cot theo giao dien B: ' + heads.join('|'));
 ok($('nav').querySelector('button.on').getAttribute('data-p') === 'list' && !$('nav').classList.contains('hidden'), 'thanh menu danh dau trang Lead');
 ok(sel(R1, 'sao').value === '1' && sel(R2, 'sao').value === '0', 'mac dinh: co SDT 1 sao, chua co 0 sao');
 ok([...sel(R1, 'sao').options].map((o) => o.value).join() === '1,2,3' && [...sel(R2, 'sao').options].map((o) => o.value).join() === '0,2,3', 'lua chon sao theo lead');
@@ -76,7 +76,8 @@ w.clearLoc(); ok($('fKy').value === 'thang' && $('fThang').value === thangNay &&
 // giai doan Proposal
 const gds = [...sel(R1, 'giaiDoan').options].map((o) => o.value);
 ok(gds.indexOf('Khách chờ Proposal') === gds.indexOf('Đã gửi Proposal') - 1 && gds.includes('Đã gửi Proposal') && !gds.includes('Đã gửi proposal/báo giá'), 'co hai giai doan Proposal dung thu tu: ' + gds.join('|'));
-await pick(R1, 'giaiDoan', 'Khách chờ Proposal'); ok(sel(R1, 'giaiDoan').value === 'Khách chờ Proposal' && !vis('pGd') && /cam/.test(sel(R1, 'giaiDoan').className), 'cho Proposal: doi truc tiep');
+await pick(R1, 'giaiDoan', 'Khách chờ Proposal'); ok($('tb').querySelector('tr.phieu[data-kieu="hoso"]') && sel(R1, 'giaiDoan').value !== 'Khách chờ Proposal', 'cho Proposal: mo o nhap QLDA + Brief truoc khi chuyen');
+$('pGui').click(); await wait(900); ok(!$('tb').querySelector('tr.phieu') && sel(R1, 'giaiDoan').value === 'Khách chờ Proposal' && !vis('pGd') && /cam/.test(sel(R1, 'giaiDoan').className) && /Còn thiếu QLDA và link Brief/.test($('lmsg').textContent), 'khong bat buoc QLDA/Brief: chuyen duoc va co nhac: ' + $('lmsg').textContent);
 const panel = () => $('tb').querySelector('tr.phieu'), go = (v) => { const e = $('pLink'); e.value = v; e.dispatchEvent(new w.Event('input')); };
 const dem = (g) => Number($('gdStrip').querySelector(`button[data-gd="${g}"] b`).textContent);
 ok($('gdStrip').children.length === 9 && dem('Khách chờ Proposal') >= 1, 'dai giai doan co so luong: ' + dem('Khách chờ Proposal'));
@@ -87,7 +88,7 @@ await pick(R1, 'giaiDoan', 'Đã gửi Proposal'); ok(panel() && !vis('pGd') && 
 $('pGui').click(); await wait(300); ok(panel() && /cần dán link/.test($('pLoi').textContent), 'thieu link bi chan');
 go('abc'); $('pGui').click(); await wait(700); ok(panel() && /không hợp lệ/.test($('pLoi').textContent) && $('pLink').value === 'abc', 'link sai bi chan, giu chu da go: ' + $('tb').textContent.match(/Link Proposal[^.]*/)?.[0]);
 panel().querySelector('button.sec').click(); ok(!panel() && sel(R1, 'giaiDoan').value === 'Khách chờ Proposal', 'Huy dong o nhap');
-const gui = row(R1).querySelector('button.them'); ok(gui && /Gửi link/.test(gui.textContent), 'cot Proposal co nut Gui link'); gui.click(); ok(panel() && $('pLoai') && $('pNgay'), 'mo tu nut Gui link');
+const gui = [...row(R1).querySelectorAll('button.them')].find((b) => /Gửi link/.test(b.textContent)); ok(gui, 'cot Ho so co nut Gui link'); gui.click(); ok(panel() && $('pLoai') && $('pNgay'), 'mo tu nut Gui link');
 go('https://example.com/proposal-' + un); $('pGui').click(); await wait(900);
 ok(!panel() && sel(R1, 'giaiDoan').value === 'Đã gửi Proposal' && /Đã chuyển/.test($('lmsg').textContent), 'co link thi chuyen duoc: ' + $('lmsg').textContent);
 const pa = row(R1).querySelector('.prop a'); ok(pa && pa.href === 'https://example.com/proposal-' + un && pa.target === '_blank' && /noopener/.test(pa.rel), 'danh sach co link Proposal');

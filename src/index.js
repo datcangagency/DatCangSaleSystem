@@ -8,6 +8,8 @@ const ROLES = ['Admin', 'QLDA', 'Sale'];
 const CLOSED = ['Đã ký', 'Mất', 'Không tiềm năng'];
 const LOSS = ['Mất', 'Không tiềm năng'];
 const DA_GUI = 'Đã gửi Proposal';   // giai đoạn bắt buộc có link Proposal
+const CHUA_HO_SO = ['Mới', 'Đã liên hệ', 'Hẹn tư vấn'];   // chưa tới bước nhập QLDA và link Brief
+const GD_Y_KIEN = [DA_GUI, 'Đàm phán'];                  // giai đoạn ghi ý kiến khách trước ký
 
 const enc = new TextEncoder();
 const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
@@ -71,6 +73,10 @@ async function chuanBiHD(env, a, d, lead) {
   if (!sale) e.push('Chọn Sale phụ trách.');
   else if (a.role !== 'Sale' && !(await catalog(env)).sale.includes(sale)) e.push('Sale không có trong danh mục.');
   if (lead && a.role === 'Sale' && lead.sale !== a.ten) e.push('Lead này không thuộc Sale của bạn.');
+  // Có lead gốc: ghi vào lead (hợp đồng đọc theo), để trống thì giữ giá trị đã có ở lead. Không có lead: ghi ở hợp đồng.
+  const gui = {}; if (String(d.qlda || '').trim()) gui.qlda = d.qlda; if (String(d.linkBrief || '').trim()) gui.linkBrief = d.linkBrief;
+  const luuO = lead ? (await env.DB.prepare('SELECT * FROM leads WHERE ma = ?').bind(lead.ma).first()) : {};
+  const hs = doiHoSo(await catalog(env), gui, luuO); if (hs.loi) e.push(hs.loi);
   if (e.length) return { err: e.join(' ') };
   const t = now(), key = 'HD-' + yymm();
   const c = await env.DB.prepare('INSERT INTO counters(key,n) VALUES(?,1) ON CONFLICT(key) DO UPDATE SET n = n + 1 RETURNING n').bind(key).first();
@@ -80,6 +86,8 @@ async function chuanBiHD(env, a, d, lead) {
   const stmts = [env.DB.prepare('INSERT INTO contracts(ma,lead_ma,khach,sale,loai,ngay_ky,so_thang,ngay_het,cam_ket,don_vi,gia_tri,ke_hoach,trang_thai,can_xac_nhan,ghi_chu,tao_luc,sua_boi,sua_luc) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
     .bind(ma, lead ? lead.ma : '', safe(khach), sale, loai, ngayKy, soThang, ngayHet, camKet, safe(donVi), giaR, ke, 'Đang thực hiện', d.canXacNhan ? 1 : 0, safe(ghiChu), t, a.ten, t)];
   for (const x of dots) stmts.push(env.DB.prepare('INSERT INTO dot_thu(hd_ma,dot,ty_le,so_tien,han) VALUES(?,?,?,?,?)').bind(ma, x[0], x[1], x[2], x[3]));
+  if (lead) stmts.push(...stmtHoSo(env, a, 'leads', lead.ma, luuO, hs.moi));
+  else if (Object.keys(hs.moi).length) stmts.push(...stmtHoSo(env, a, 'contracts', ma, {}, hs.moi));
   stmts.push(logStmt(env, a.username, 'TAO_HOP_DONG', ma, `${khach} | ${loai} | ${giaR} | ${ke}${lead ? ' | ' + lead.ma : ''}`));
   return { ma, stmts };
 }
@@ -87,12 +95,14 @@ async function chuanBiHD(env, a, d, lead) {
 // Gom so lieu phat sinh cho tap hop dong: tong da thu, dot thu, su kien thuc thi
 async function phanTichHD(env, rows) {
   if (!rows.length) return [];
-  const [dots, thu, tt, gh] = await env.DB.batch([
+  const [dots, thu, tt, gh, ld] = await env.DB.batch([
     env.DB.prepare('SELECT hd_ma, dot, ty_le, so_tien, han FROM dot_thu ORDER BY hd_ma, dot'),
     env.DB.prepare('SELECT hd_ma, SUM(so_tien) AS s, MAX(ngay) AS cuoi FROM thu_tien GROUP BY hd_ma'),
     env.DB.prepare('SELECT hd_ma, COUNT(*) AS n, MAX(ngay) AS cuoi FROM thuc_thi GROUP BY hd_ma'),
     env.DB.prepare("SELECT hd_ma, SUM(so_luong) AS s FROM thuc_thi WHERE loai = 'Giao sản phẩm' GROUP BY hd_ma"),
+    env.DB.prepare('SELECT ma, qlda, link_brief FROM leads WHERE ma IN (SELECT lead_ma FROM contracts)'),
   ]);
+  const mLd = {}; for (const x of ld.results) mLd[x.ma] = x;
   const by = (r) => { const m = {}; for (const x of r.results) (m[x.hd_ma] = m[x.hd_ma] || []).push(x); return m; };
   const mDot = by(dots), mThu = {}, mTt = {}, mGh = {};
   for (const x of thu.results) mThu[x.hd_ma] = x; for (const x of tt.results) mTt[x.hd_ma] = x; for (const x of gh.results) mGh[x.hd_ma] = x.s || 0;
@@ -102,7 +112,8 @@ async function phanTichHD(env, rows) {
     let cum = 0, quaHanSo = 0, dotTiep = null;
     for (const x of ds) { cum += x.so_tien; if (x.han < today && daThu < cum) quaHanSo = Math.max(quaHanSo, cum - daThu); }
     let acc = 0; for (const x of ds) { acc += x.so_tien; if (daThu < acc) { dotTiep = { dot: x.dot, han: x.han, soTien: Math.min(x.so_tien, acc - daThu) }; break; } }
-    return { ...c, dots: ds, daThu, conPhai: Math.max(0, c.gia_tri - daThu), quaHanSo, dotTiep, giao: mGh[c.ma] || 0, suKien: tc.n || 0, suKienCuoi: tc.cuoi || '' };
+    const goc = (c.lead_ma && mLd[c.lead_ma]) || c;
+    return { ...c, qlda: goc.qlda || '', link_brief: goc.link_brief || '', dots: ds, daThu, conPhai: Math.max(0, c.gia_tri - daThu), quaHanSo, dotTiep, giao: mGh[c.ma] || 0, suKien: tc.n || 0, suKienCuoi: tc.cuoi || '' };
   });
 }
 
@@ -125,7 +136,7 @@ function canhBaoHD(list) {
   }
   return out;
 }
-const hdOut = (c) => ({ ma: c.ma, leadMa: c.lead_ma, khach: c.khach, sale: c.sale, loai: c.loai, ngayKy: c.ngay_ky, soThang: c.so_thang, ngayHet: c.ngay_het, camKet: c.cam_ket, donVi: c.don_vi, giaTri: c.gia_tri, keHoach: c.ke_hoach,
+const hdOut = (c) => ({ ma: c.ma, leadMa: c.lead_ma, khach: c.khach, sale: c.sale, qlda: c.qlda || '', linkBrief: c.link_brief || '', loai: c.loai, ngayKy: c.ngay_ky, soThang: c.so_thang, ngayHet: c.ngay_het, camKet: c.cam_ket, donVi: c.don_vi, giaTri: c.gia_tri, keHoach: c.ke_hoach,
   trangThai: c.trang_thai, canXacNhan: !!c.can_xac_nhan, ghiChu: c.ghi_chu, daThu: c.daThu, conPhai: c.conPhai, quaHanSo: c.quaHanSo, dotTiep: c.dotTiep, dots: c.dots.map((x) => ({ dot: x.dot, tyLe: x.ty_le, soTien: x.so_tien, han: x.han })), giao: c.giao, suKien: c.suKien, suKienCuoi: c.suKienCuoi });
 const hdVisible = (a) => a.role === 'Sale' ? ' WHERE sale = ?' : '';
 function normPhone(v) {
@@ -147,13 +158,32 @@ function normLink(v) {
 const linkHopLe = (v) => v.length <= 500 && /^https?:\/\/[^\s"'<>\/]+\.[^\s"'<>]+$/i.test(v);
 const LOI_LINK = 'Link Proposal không hợp lệ: dán đầy đủ địa chỉ bắt đầu bằng http:// hoặc https://.';
 
+// QLDA phụ trách và link Brief: đều không bắt buộc, được xóa trống. Chỉ Sale phụ trách hoặc Admin nhập.
+const LOI_BRIEF = 'Link Brief không hợp lệ: dán đầy đủ địa chỉ bắt đầu bằng http:// hoặc https://.';
+const LOI_QUYEN_HS = 'Chỉ Sale phụ trách hoặc Admin được nhập QLDA và link Brief.';
+// Trả về { loi } hoặc { moi: {qlda?, link_brief?} } chỉ gồm trường được gửi lên và có thay đổi so với cu.
+function doiHoSo(dm, d, cu) {
+  const moi = {};
+  if (d.qlda !== undefined) { const v = String(d.qlda || '').trim(); if (v !== (cu.qlda || '')) { if (v && !dm.qlda.includes(v)) return { loi: 'Chọn QLDA từ danh sách.' }; moi.qlda = v; } }
+  if (d.linkBrief !== undefined) { const v = String(d.linkBrief || '').trim(); if (v !== (cu.link_brief || '')) { if (v && !linkHopLe(v)) return { loi: LOI_BRIEF }; moi.link_brief = v; } }
+  return { moi };
+}
+const TEN_HS = { qlda: 'QLDA', link_brief: 'Link Brief' };
+function stmtHoSo(env, a, bang, ma, cu, moi) {
+  const cot = Object.keys(moi); if (!cot.length) return [];
+  return [env.DB.prepare(`UPDATE ${bang} SET ${cot.map((k) => k + '=?').join(', ')}, sua_boi=?, sua_luc=? WHERE ma=?`).bind(...cot.map((k) => moi[k]), a.ten, now(), ma),
+    logStmt(env, a.username, 'SUA_NHANH', ma, cot.map((k) => `${TEN_HS[k]}: ${cu[k] || '(trống)'} → ${moi[k] || '(trống)'}`).join(' | '))];
+}
+const docMuc = (v) => { try { const x = JSON.parse(v); return Array.isArray(x) ? x : []; } catch (e) { return []; } };
+const ykOut = (r) => ({ ngay: r.ngay, giaiDoan: r.giai_doan, muc: docMuc(r.muc), ghiChu: r.ghi_chu, boi: r.boi });
+
 // Tên cũ "Mình tự tìm" đổi thành "Tự tìm" (dữ liệu và trang cũ vẫn gửi tên cũ đều được hiểu).
 const tenCach = (v) => (v === 'Mình tự tìm' ? 'Tự tìm' : v);
 
 async function catalog(env) {
   const { results } = await env.DB.prepare('SELECT kind, value FROM catalog ORDER BY kind, ord').all();
-  const o = { giaiDoan: [], nguon: [], nguonLink: [], cachSdt: [], sale: [], qlda: [], lyDo: [], mucTiemNang: [], loaiViec: [] };
-  const map = { giai_doan: 'giaiDoan', nguon: 'nguon', nguon_link: 'nguonLink', cach_sdt: 'cachSdt', sale: 'sale', qlda: 'qlda', ly_do: 'lyDo', muc_tiem_nang: 'mucTiemNang', loai_viec: 'loaiViec' };
+  const o = { giaiDoan: [], nguon: [], nguonLink: [], cachSdt: [], sale: [], qlda: [], lyDo: [], mucTiemNang: [], loaiViec: [], lanTan: [] };
+  const map = { giai_doan: 'giaiDoan', nguon: 'nguon', nguon_link: 'nguonLink', cach_sdt: 'cachSdt', sale: 'sale', qlda: 'qlda', ly_do: 'lyDo', muc_tiem_nang: 'mucTiemNang', loai_viec: 'loaiViec', lan_tan: 'lanTan' };
   for (const r of results) if (map[r.kind]) o[map[r.kind]].push(r.kind === 'cach_sdt' ? tenCach(r.value) : r.value);
   return o;
 }
@@ -191,7 +221,7 @@ const SQL_SAO = "MAX(uu_tien, CASE WHEN sdt <> '' THEN 1 ELSE 0 END)";
 const leadOut = (r) => ({
   ma: r.ma, ngayNhan: r.ngay_nhan, ten: r.ten, sdt: r.sdt, link: r.link, nguon: r.nguon, cachSdt: tenCach(r.cach_sdt), sale: r.sale,
   giaiDoan: r.giai_doan, ngayDoiGd: r.ngay_doi_gd, mucTiemNang: r.muc_tiem_nang, tomLuoc: r.tom_luoc, loaiViec: r.loai_viec,
-  hanhDong: r.hanh_dong, ngayHd: r.ngay_hd, giaTri: r.gia_tri, lyDo: r.ly_do, ghiChu: r.ghi_chu, linkProposal: r.link_proposal || '', sao: soSao(r), uuTien: soSao(r) > 0,
+  hanhDong: r.hanh_dong, ngayHd: r.ngay_hd, giaTri: r.gia_tri, lyDo: r.ly_do, ghiChu: r.ghi_chu, linkProposal: r.link_proposal || '', qlda: r.qlda || '', linkBrief: r.link_brief || '', sao: soSao(r), uuTien: soSao(r) > 0,
 });
 
 async function findDup(env, sdt, linkKey, exceptMa) {
@@ -286,7 +316,9 @@ const API = {
 
   async danhSachLead(env) {
     const { results } = await env.DB.prepare(`SELECT * FROM leads ORDER BY ${SQL_SAO} DESC, tao_luc DESC LIMIT 3000`).all();
-    return { ok: true, leads: results.map(leadOut) };
+    const yk = {};
+    for (const r of (await env.DB.prepare('SELECT lead_ma, ngay, giai_doan, muc, ghi_chu, boi FROM y_kien ORDER BY id').all()).results) yk[r.lead_ma] = { so: (yk[r.lead_ma] ? yk[r.lead_ma].so : 0) + 1, ...ykOut(r) };
+    return { ok: true, leads: results.map((r) => ({ ...leadOut(r), yKien: yk[r.ma] || null })) };
   },
 
   async doiGiaiDoan(env, req, a, d) {
@@ -314,17 +346,23 @@ const API = {
     const cuLink = l.link_proposal || '', moiLink = gd === DA_GUI ? String(d.linkProposal || '').trim() : '';
     if (moiLink && !linkHopLe(moiLink)) return fail(LOI_LINK);
     if (gd === DA_GUI && l.giai_doan !== DA_GUI && !(moiLink || cuLink)) return fail('Chuyển sang Đã gửi Proposal cần dán link Proposal.');
+    let hs = { moi: {} };
+    if (!CHUA_HO_SO.includes(gd) && (d.qlda !== undefined || d.linkBrief !== undefined)) {
+      hs = doiHoSo(dm, d, l); if (hs.loi) return fail(hs.loi);
+      if (a.role === 'QLDA' && Object.keys(hs.moi).length) return fail(LOI_QUYEN_HS);
+    }
     const sets = [env.DB.prepare(
       'UPDATE leads SET giai_doan=?, ngay_doi_gd=?, muc_tiem_nang=?, ly_do=?, loai_viec=?, hanh_dong=?, ngay_hd=?, sua_boi=?, sua_luc=? WHERE ma=?'
     ).bind(gd, t, muc, lyDo, loai, safe(hd), ngay, a.ten, t, l.ma)];
     if (gd !== l.giai_doan) sets.push(env.DB.prepare('INSERT INTO stage_history(ma,tu,den,luc,boi,ghi_chu) VALUES(?,?,?,?,?,?)').bind(l.ma, l.giai_doan, gd, t, a.ten, safe(ghiChu || lyDo)));
     if (moiLink && moiLink !== cuLink) sets.push(env.DB.prepare('UPDATE leads SET link_proposal=? WHERE ma=?').bind(moiLink, l.ma),
       logStmt(env, a.username, 'SUA_NHANH', l.ma, `Link Proposal: ${cuLink || '(trống)'} → ${moiLink}`));
+    sets.push(...stmtHoSo(env, a, 'leads', l.ma, l, hs.moi));
     let maHD = '';
     if (gd === 'Đã ký' && l.giai_doan !== 'Đã ký' && !(await env.DB.prepare('SELECT 1 FROM contracts WHERE lead_ma = ?').bind(l.ma).first())) {
       if (a.role === 'QLDA') return fail('Chỉ Sale hoặc Admin được chuyển lead sang Đã ký (cần tạo hợp đồng).');
       if (!d.hopDong || typeof d.hopDong !== 'object') return fail('Chuyển sang Đã ký phải tạo hợp đồng ngay: nhập loại, ngày ký, giá trị, kiểu thanh toán.');
-      const r = await chuanBiHD(env, a, { ...d.hopDong, sale: a.role === 'Sale' ? a.ten : (d.hopDong.sale || l.sale) }, l); if (r.err) return fail(r.err);
+      const r = await chuanBiHD(env, a, { ...d.hopDong, sale: a.role === 'Sale' ? a.ten : (d.hopDong.sale || l.sale) }, { ...l, ...hs.moi }); if (r.err) return fail(r.err);
       sets.push(...r.stmts); maHD = r.ma;
     }
     sets.push(logStmt(env, a.username, 'DOI_GIAI_DOAN', l.ma, `${l.giai_doan} -> ${gd}`));
@@ -406,6 +444,49 @@ const API = {
     return { ok: true };
   },
 
+  // Nhập QLDA và link Brief cho lead, hoặc cho hợp đồng (gửi maHD). Hợp đồng có lead gốc thì lưu ở lead.
+  async ghiHoSo(env, req, a, d) {
+    let bang = 'leads', cu;
+    if (d.maHD) {
+      const c = await env.DB.prepare('SELECT * FROM contracts WHERE ma = ?').bind(String(d.maHD)).first();
+      if (!c || (a.role === 'Sale' && c.sale !== a.ten)) return fail('Không tìm thấy hợp đồng.');
+      cu = c.lead_ma ? await env.DB.prepare('SELECT * FROM leads WHERE ma = ?').bind(c.lead_ma).first() : null;
+      if (!cu) { cu = c; bang = 'contracts'; }
+    } else {
+      cu = await env.DB.prepare('SELECT * FROM leads WHERE ma = ?').bind(String(d.ma || '')).first();
+      if (!cu) return fail('Không tìm thấy lead.');
+      if (a.role === 'Sale' && cu.sale !== a.ten) return fail('Lead này không thuộc Sale của bạn.');
+      if (CHUA_HO_SO.includes(cu.giai_doan)) return fail('Nhập QLDA và link Brief từ giai đoạn Khách chờ Proposal.');
+    }
+    if (a.role === 'QLDA') return fail(LOI_QUYEN_HS);
+    const hs = doiHoSo(await catalog(env), d, cu); if (hs.loi) return fail(hs.loi);
+    const st = stmtHoSo(env, a, bang, cu.ma, cu, hs.moi);
+    if (st.length) await env.DB.batch(st);
+    return { ok: true };
+  },
+
+  // Ý kiến khách trước ký: mỗi lần ghi là một dòng lịch sử, không sửa đè.
+  async ghiYKien(env, req, a, d) {
+    const l = await env.DB.prepare('SELECT * FROM leads WHERE ma = ?').bind(String(d.ma || '')).first();
+    if (!l) return fail('Không tìm thấy lead.');
+    if (a.role === 'QLDA') return fail('Chỉ Sale phụ trách hoặc Admin được ghi ý kiến khách.');
+    if (a.role === 'Sale' && l.sale !== a.ten) return fail('Lead này không thuộc Sale của bạn.');
+    if (!GD_Y_KIEN.includes(l.giai_doan)) return fail('Chỉ ghi ý kiến khi lead ở giai đoạn Đã gửi Proposal hoặc Đàm phán.');
+    const dm = await catalog(env), chon = Array.isArray(d.muc) ? d.muc.map(String) : [];
+    if (!chon.length) return fail('Chọn ít nhất một điều khách lăn tăn.');
+    if (chon.some((x) => !dm.lanTan.includes(x))) return fail('Mục lăn tăn không có trong danh sách.');
+    const muc = dm.lanTan.filter((x) => chon.includes(x)), gc = String(d.ghiChu || '').trim();
+    if (gc.length > 300) return fail('Ghi chú tối đa 300 ký tự.');
+    if (muc.includes('Khác') && !gc) return fail('Chọn "Khác" thì ghi rõ khách lăn tăn điều gì.');
+    const t = now(), ngay = homNayVN();
+    await env.DB.batch([
+      env.DB.prepare('INSERT INTO y_kien(lead_ma,ngay,giai_doan,muc,ghi_chu,boi,luc) VALUES(?,?,?,?,?,?,?)').bind(l.ma, ngay, l.giai_doan, JSON.stringify(muc), safe(gc), a.ten, t),
+      env.DB.prepare('UPDATE leads SET sua_boi=?, sua_luc=? WHERE ma=?').bind(a.ten, t, l.ma),
+      logStmt(env, a.username, 'Y_KIEN', l.ma, muc.join(', ')),
+    ]);
+    return { ok: true, yKien: { ngay, giaiDoan: l.giai_doan, muc, ghiChu: safe(gc), boi: a.ten } };
+  },
+
   async lichSu(env, req, a, d) {
     const { results } = await env.DB.prepare('SELECT tu, den, luc, boi, ghi_chu FROM stage_history WHERE ma = ? ORDER BY id').bind(String(d.ma || '')).all();
     return { ok: true, ls: results };
@@ -423,7 +504,8 @@ const API = {
     for (const x of act) ev.push({ luc: x.luc, loai: x.action === 'THEM_LEAD' ? 'Tạo lead' : x.action === 'CHUYEN_SALE' ? 'Chuyển Sale' : x.action === 'SUA_NHANH' ? 'Sửa thông tin' : 'SĐT', noiDung: x.detail.replace(/co SDT/g, 'có SĐT').replace(/chua co SDT/g, 'chưa có SĐT').replace(/doi SDT/g, 'đổi SĐT').replace(/them SDT, len uu tien/g, 'thêm SĐT, lên diện ưu tiên').replace(/them SDT/g, 'thêm SĐT'), boi: ten[x.usr] || x.usr });
     for (const h of hist) ev.push({ luc: h.luc, loai: 'Đổi giai đoạn', noiDung: h.tu + ' → ' + h.den + (h.ghi_chu ? ' (' + h.ghi_chu + ')' : ''), boi: h.boi });
     ev.sort((x, y) => y.luc - x.luc);
-    return { ok: true, lead: { ...leadOut(l), ngayCoSdt: l.ngay_co_sdt, taoLuc: l.tao_luc, suaBoi: l.sua_boi, suaLuc: l.sua_luc }, ev };
+    const yKien = (await env.DB.prepare('SELECT ngay, giai_doan, muc, ghi_chu, boi FROM y_kien WHERE lead_ma = ? ORDER BY id DESC').bind(l.ma).all()).results.map(ykOut);
+    return { ok: true, yKien, lead: { ...leadOut(l), ngayCoSdt: l.ngay_co_sdt, taoLuc: l.tao_luc, suaBoi: l.sua_boi, suaLuc: l.sua_luc }, ev };
   },
 
   async baoCao(env, req, a, d) {
@@ -526,7 +608,16 @@ const API = {
     const bu = giaiDoan.filter((x) => x.c > 0); const hanhTrinh = ['Mới', 'Đã liên hệ', 'Hẹn tư vấn', 'Khách chờ Proposal', 'Đã gửi Proposal', 'Đàm phán', 'Đã ký'];
     if (C.nhan >= 10 && (gdM['Mới'] || 0) / C.nhan > 0.6) add('canh_bao', `${pc((gdM['Mới'] || 0) / C.nhan)} lead nhận trong kỳ vẫn ở giai đoạn Mới: cần liên hệ sớm hơn.`);
     const hot2 = hot.results.length; if (hot2) add('goi_y', `${hot2} lead mức "Tiềm năng" đang mở (xem danh sách ưu tiên bên dưới).`);
-    return { ok: true, kieu, den: A, ky: { t: R.t, e: R.e }, kyTruoc: { t: P.t, e: P.e }, homNay: today, xuHuong: xuong, tong: C, truoc: Pv, tongMo, khongViec, quaHanN,
+    // Điều khách lăn tăn: toàn bộ thời gian, đếm theo lead (một lead ghi nhiều lần cùng mục chỉ tính một).
+    const [ykR, dsGd] = await env.DB.batch([
+      q('SELECT y.lead_ma, y.muc, l.giai_doan FROM y_kien y JOIN leads l ON l.ma = y.lead_ma'),
+      q('SELECT COUNT(*) AS c, SUM(ma IN (SELECT lead_ma FROM y_kien)) AS co FROM leads WHERE giai_doan IN (?,?)', ...GD_Y_KIEN),
+    ]);
+    const theoMuc = {}; for (const r of ykR.results) for (const m of docMuc(r.muc)) (theoMuc[m] = theoMuc[m] || {})[r.lead_ma] = r.giai_doan;
+    const lanTan = dmc.lanTan.map((k) => { const g = Object.values(theoMuc[k] || {}), ky = g.filter((x) => x === 'Đã ký').length, mat = g.filter((x) => LOSS.includes(x)).length;
+      return { k, so: g.length, ky, mat, mo: g.length - ky - mat }; });
+    const hoi = { dang: dsGd.results[0].c, coGhi: dsGd.results[0].co || 0, tongLead: new Set(ykR.results.map((r) => r.lead_ma)).size };
+    return { ok: true, lanTan, hoiYKien: hoi, kieu, den: A, ky: { t: R.t, e: R.e }, kyTruoc: { t: P.t, e: P.e }, homNay: today, xuHuong: xuong, tong: C, truoc: Pv, tongMo, khongViec, quaHanN,
       giaiDoan, nguon, sale, lyDo, mucTiemNang: mucTn, quaHan: qh.results, uuTien: hot.results, nhanXet: nx };
   },
 
@@ -548,9 +639,9 @@ const API = {
     const sale = a.role === 'Sale';
     const q = env.DB.prepare('SELECT * FROM contracts' + hdVisible(a) + ' ORDER BY ngay_ky DESC, ma DESC'); const rows = (sale ? await q.bind(a.ten).all() : await q.all()).results;
     const ds = await phanTichHD(env, rows);
-    const q2 = env.DB.prepare("SELECT ma, ten, sale, ngay_doi_gd FROM leads WHERE giai_doan = 'Đã ký' AND ma NOT IN (SELECT lead_ma FROM contracts WHERE lead_ma <> '')" + (sale ? ' AND sale = ?' : '') + ' ORDER BY ngay_doi_gd DESC');
+    const q2 = env.DB.prepare("SELECT ma, ten, sale, qlda, link_brief, ngay_doi_gd FROM leads WHERE giai_doan = 'Đã ký' AND ma NOT IN (SELECT lead_ma FROM contracts WHERE lead_ma <> '')" + (sale ? ' AND sale = ?' : '') + ' ORDER BY ngay_doi_gd DESC');
     const thieu = (sale ? await q2.bind(a.ten).all() : await q2.all()).results;
-    return { ok: true, hd: ds.map(hdOut), thieuHD: thieu.map((x) => ({ ma: x.ma, ten: x.ten, sale: x.sale })), canhBao: canhBaoHD(ds), homNay: homNayVN() };
+    return { ok: true, hd: ds.map(hdOut), thieuHD: thieu.map((x) => ({ ma: x.ma, ten: x.ten, sale: x.sale, qlda: x.qlda, linkBrief: x.link_brief })), canhBao: canhBaoHD(ds), homNay: homNayVN() };
   },
 
   async chiTietHopDong(env, req, a, d) {
@@ -677,7 +768,7 @@ const API = {
   // ---- quan tri ----
   async saoLuu(env, req, a) {
     // Admin: xuat toan bo du lieu thanh file SQL (INSERT) de luu local. Khong gom phien dang nhap.
-    const T = ['users', 'catalog', 'counters', 'leads', 'stage_history', 'audit', 'contracts', 'dot_thu', 'thu_tien', 'thuc_thi'];
+    const T = ['users', 'catalog', 'counters', 'leads', 'stage_history', 'audit', 'contracts', 'dot_thu', 'thu_tien', 'thuc_thi', 'y_kien'];
     const q = v => v === null || v === undefined ? 'NULL' : typeof v === 'number' ? String(v) : "'" + String(v).replace(/'/g, "''") + "'";
     const out = ['-- Dat Cang Sale - ban sao luu ' + new Date().toISOString(), '-- Khoi phuc: chay file nay tren D1 trong sau khi chay migrations (bang rong). CHUA PII khach + mat khau da bam.'];
     const dem = {};
@@ -733,7 +824,7 @@ const API = {
 // quyen: 'public' = khong can dang nhap; 'auth' = da dang nhap (ke ca dang bat buoc doi MK); 'use' = da doi MK; 'admin'
 const PERM = {
   login: 'public', phien: 'public', logout: 'public', doiMatKhau: 'auth', layDanhMuc: 'use',
-  themLead: 'use', danhSachLead: 'use', doiGiaiDoan: 'use', capNhatSdt: 'use', suaNhanh: 'use', chuyenSale: 'use', lichSu: 'use', chiTietLead: 'use', baoCao: 'use', thongKe: 'use',
+  themLead: 'use', danhSachLead: 'use', doiGiaiDoan: 'use', capNhatSdt: 'use', suaNhanh: 'use', ghiHoSo: 'use', ghiYKien: 'use', chuyenSale: 'use', lichSu: 'use', chiTietLead: 'use', baoCao: 'use', thongKe: 'use',
   taoHopDong: 'use', danhSachHopDong: 'use', chiTietHopDong: 'use', ghiThucThi: 'use', canhBaoHopDong: 'use', ghiThuTien: 'admin', suaHopDong: 'admin', doanhThu: 'admin',
   danhSachTaiKhoan: 'admin', taoTaiKhoan: 'admin', datLaiMatKhau: 'admin', tatTaiKhoan: 'admin', saoLuu: 'admin',
 };

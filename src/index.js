@@ -498,7 +498,8 @@ const API = {
     if (!l) return fail('Không tìm thấy lead.');
     const hist = (await env.DB.prepare('SELECT tu, den, luc, boi, ghi_chu FROM stage_history WHERE ma = ? ORDER BY id').bind(l.ma).all()).results;
     const act = (await env.DB.prepare("SELECT luc, usr, action, detail FROM audit WHERE obj = ? AND action IN ('THEM_LEAD','CAP_NHAT_SDT','CHUYEN_SALE','SUA_NHANH') ORDER BY id").bind(l.ma).all()).results;
-    const ten = {}; for (const u of (await env.DB.prepare('SELECT username, ten FROM users').all()).results) ten[u.username] = u.ten;
+    const ten = {}; for (const x of (await env.DB.prepare("SELECT obj, detail FROM audit WHERE action = 'XOA_TAI_KHOAN'").all()).results) ten[x.obj] = x.detail;
+    for (const u of (await env.DB.prepare('SELECT username, ten FROM users').all()).results) ten[u.username] = u.ten;
     const ev = [];
     if (!act.some((x) => x.action === 'THEM_LEAD')) ev.push({ luc: l.tao_luc, loai: 'Tạo lead', noiDung: 'Nguồn ' + l.nguon + ', Sale ' + l.sale, boi: '' });
     for (const x of act) ev.push({ luc: x.luc, loai: x.action === 'THEM_LEAD' ? 'Tạo lead' : x.action === 'CHUYEN_SALE' ? 'Chuyển Sale' : x.action === 'SUA_NHANH' ? 'Sửa thông tin' : 'SĐT', noiDung: x.detail.replace(/co SDT/g, 'có SĐT').replace(/chua co SDT/g, 'chưa có SĐT').replace(/doi SDT/g, 'đổi SĐT').replace(/them SDT, len uu tien/g, 'thêm SĐT, lên diện ưu tiên').replace(/them SDT/g, 'thêm SĐT'), boi: ten[x.usr] || x.usr });
@@ -791,6 +792,7 @@ const API = {
     if (!ten || ten.length > 100) return fail('Họ tên bắt buộc.');
     if (!ROLES.includes(role)) return fail('Vai trò không hợp lệ.');
     if (await env.DB.prepare('SELECT 1 FROM users WHERE username = ?').bind(un).first()) return fail('Tên đăng nhập đã tồn tại.');
+    if (await env.DB.prepare("SELECT 1 FROM audit WHERE action = 'XOA_TAI_KHOAN' AND obj = ?").bind(un).first()) return fail('Tên đăng nhập này thuộc một tài khoản đã xóa, hãy chọn tên khác.');
     const pw = randPass(), salt = b64url(rnd(16));
     await env.DB.batch([
       env.DB.prepare('INSERT INTO users(username,ten,role,salt,hash,iters,must_change) VALUES(?,?,?,?,?,?,1)').bind(un, safe(ten), role, salt, await pbkdf2(pw, salt, PBKDF2_ITERS), PBKDF2_ITERS),
@@ -809,6 +811,19 @@ const API = {
     ]);
     return { ok: true, matKhauTam: pw };
   },
+  async xoaTaiKhoan(env, req, a, d) {
+    const un = String(d.username || '').trim().toLowerCase();
+    if (un === a.username) return fail('Không thể tự xóa tài khoản của chính mình.');
+    const u = await env.DB.prepare('SELECT ten FROM users WHERE username = ?').bind(un).first();
+    if (!u) return fail('Không có tài khoản này.');
+    // Chi xoa tai khoan va phien dang nhap. Lead, hop dong, lich su giu nguyen; ho ten ghi vao nhat ky de lich su van hien dung nguoi lam.
+    await env.DB.batch([
+      env.DB.prepare('DELETE FROM sessions WHERE username = ?').bind(un),
+      env.DB.prepare('DELETE FROM users WHERE username = ?').bind(un),
+      logStmt(env, a.username, 'XOA_TAI_KHOAN', un, u.ten),
+    ]);
+    return { ok: true };
+  },
   async tatTaiKhoan(env, req, a, d) {
     const un = String(d.username || '').trim().toLowerCase(), on = d.bat ? 1 : 0;
     if (un === a.username) return fail('Không thể tự tắt tài khoản của chính mình.');
@@ -826,7 +841,7 @@ const PERM = {
   login: 'public', phien: 'public', logout: 'public', doiMatKhau: 'auth', layDanhMuc: 'use',
   themLead: 'use', danhSachLead: 'use', doiGiaiDoan: 'use', capNhatSdt: 'use', suaNhanh: 'use', ghiHoSo: 'use', ghiYKien: 'use', chuyenSale: 'use', lichSu: 'use', chiTietLead: 'use', baoCao: 'use', thongKe: 'use',
   taoHopDong: 'use', danhSachHopDong: 'use', chiTietHopDong: 'use', ghiThucThi: 'use', canhBaoHopDong: 'use', ghiThuTien: 'admin', suaHopDong: 'admin', doanhThu: 'admin',
-  danhSachTaiKhoan: 'admin', taoTaiKhoan: 'admin', datLaiMatKhau: 'admin', tatTaiKhoan: 'admin', saoLuu: 'admin',
+  danhSachTaiKhoan: 'admin', taoTaiKhoan: 'admin', datLaiMatKhau: 'admin', tatTaiKhoan: 'admin', xoaTaiKhoan: 'admin', saoLuu: 'admin',
 };
 
 async function khoiTao(env, req) {

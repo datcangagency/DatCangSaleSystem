@@ -27,6 +27,7 @@ button{background:var(--brand);color:#fff;border:1px solid var(--brand);min-heig
 button:hover{background:var(--brand-d)}
 button.sec{background:#fff;color:var(--ink);border:1px solid var(--line2);min-height:32px;padding:5px 12px;font-size:13px;margin:1px}button.sec:hover{background:#f1f5f9}
 button.sec.lon{min-height:40px;font-size:14px;padding:8px 16px;margin:0}
+button.sec.xoa{color:#b42318;border-color:#f3b4ad}button.sec.xoa:hover{background:#fef3f2}
 button.chu{background:none;border:0;color:var(--brand);padding:8px 6px;margin:0}button.chu:hover{background:var(--soft)}
 button:disabled{opacity:.5;cursor:default}
 table{border-collapse:collapse;width:100%;font-size:13px}th,td{border:0;border-bottom:1px solid var(--line);padding:9px 10px;text-align:left;vertical-align:top}
@@ -79,6 +80,7 @@ select.sao{letter-spacing:1px}select.sao.s3{background:#ffd75e;color:#5c4300}
 .tabs button{background:#fff;color:var(--ink);border:1px solid var(--line2);border-radius:20px;margin:2px 4px 2px 0;padding:6px 14px}.tabs button.on{background:var(--brand);border-color:var(--brand);color:#fff}
 @media (max-width:700px){.top,.wrap{padding-left:14px;padding-right:14px}.grid{grid-template-columns:1fr}.card{padding:16px}.nav{column-gap:14px}.nav button{min-height:44px}}
 @media (max-width:1100px){.phieuIn{position:sticky;left:18px;max-width:calc(100vw - 96px)}}@media (max-width:700px){.phieuIn{max-width:calc(100vw - 60px)}}
+@media(max-width:600px){#pUsers thead{display:none}#pUsers table,#pUsers tbody{display:block;width:100%}#pUsers #ub tr{display:flex;flex-wrap:wrap;gap:0 12px;padding:10px 0;border-bottom:1px solid var(--line2)}#pUsers #ub td{border:0;padding:2px 0}#pUsers #ub td:first-child{font-weight:600}#pUsers #ub td:last-child{flex-basis:100%;display:flex;flex-wrap:wrap;gap:8px;padding-top:6px}#pUsers #ub button{white-space:nowrap}}
 </style></head><body>
 <header class="top"><b class="brand">Đất Cảng Sale</b>
  <nav id="nav" class="nav hidden" aria-label="Chức năng"><button type="button" data-p="list" onclick="show('list')">Lead</button><button type="button" data-p="add" onclick="show('add')">Thêm lead</button><button type="button" data-p="hd" onclick="show('hd')">Hợp đồng</button><button type="button" data-p="rev" id="bRev" class="hidden" onclick="show('rev')">Doanh thu</button><button type="button" data-p="dash" onclick="show('dash')">Dashboard</button><button type="button" data-p="report" onclick="show('report')">Báo cáo</button><button type="button" data-p="users" id="bUsers" class="hidden" onclick="show('users')">Tài khoản</button></nav>
@@ -153,7 +155,7 @@ select.sao{letter-spacing:1px}select.sao.s3{background:#ffd75e;color:#5c4300}
   </div>
   <div id="gOpen"><div class="grid">
    <div><label>Loại việc tiếp theo <span class="req">*</span></label><select id="gLoai"></select></div>
-   <div><label>Ngày làm việc tiếp theo <span class="req">*</span></label><input id="gNgay" type="date"></div></div>
+   <div><label>Ngày làm việc tiếp theo <span class="req">*</span></label><input id="gNgay" type="date" oninput="window.__ngayTay=true" onchange="window.__ngayTay=true"></div></div>
    <label>Mô tả việc tiếp theo <span class="hint">(không bắt buộc)</span></label><input id="gHd" maxlength="300"></div>
   <div id="gHS" class="hidden"><div class="grid"><div><label>QLDA phụ trách <span class="hint">(không bắt buộc)</span></label><select id="gQlda"></select></div><div><label>Link Brief <span class="hint">(không bắt buộc)</span></label><input id="gBrief" type="url" maxlength="500" placeholder="https://..."></div></div></div>
   <div id="gProp" class="hidden"><label>Link Proposal <span class="req">*</span></label><input id="gLink" type="url" maxlength="500" placeholder="https://..."></div>
@@ -234,7 +236,7 @@ select.sao{letter-spacing:1px}select.sao.s3{background:#ffd75e;color:#5c4300}
   <p class="hint">Tải toàn bộ dữ liệu (khách, lịch sử, tài khoản, nhật ký) về máy dưới dạng file SQL. File chứa thông tin khách: chỉ lưu trên máy, không đưa lên GitHub/Drive. Nên tải mỗi tuần.</p>
   <p><button onclick="backupNow()">Tải bản sao lưu</button> <span id="bkmsg"></span></p>
   <h3>Tài khoản</h3><div id="umsg"></div>
-  <table><thead><tr><th>Tên đăng nhập</th><th>Họ tên</th><th>Vai trò</th><th>Trạng thái</th><th></th></tr></thead><tbody id="ub"></tbody></table>
+  <div class="tblwrap"><table><thead><tr><th>Tên đăng nhập</th><th>Họ tên</th><th>Vai trò</th><th>Trạng thái</th><th></th></tr></thead><tbody id="ub"></tbody></table></div>
   <h4>Tạo tài khoản</h4>
   <div class="grid">
    <div><label>Tên đăng nhập <span class="hint">(chữ thường, số, _ .)</span></label><input id="nUser"></div>
@@ -269,7 +271,7 @@ function fill(){
   $('gLoai').innerHTML=opts(DM.loaiViec,'-- chọn --');$('gLy').innerHTML=opts(DM.lyDo,'-- chọn --');$('gQlda').innerHTML=opts(DM.qlda,'-- chưa chọn --');
   if(U.role==='Sale'){$('aSale').value=U.ten;$('aSale').disabled=true}else $('aSale').disabled=false;
   $('fSale').innerHTML='<option value="">Tất cả Sale</option><option value="@toi">Lead của tôi</option>'+opts(DM.sale);locMacDinh();
-  var d=new Date(),s=d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2);$('aNgay').value=s;srcChange()}
+  var d=new Date(),s=d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2);$('aNgay').value=s;$('aNgayHd').value=homNay();srcChange()}
 function srcChange(){var n=$('aNguon').value,lk=(DM.nguonLink||[]).indexOf(n)>=0,has=$('aSdt').value.trim()!=='';
   $('dLink').classList.toggle('hidden',!lk);$('dCach').classList.toggle('hidden',!has);
   $('aSdtReq').textContent=lk?'(chưa có thì để trống, phải có link)':'(bắt buộc với nguồn này)'}
@@ -280,7 +282,7 @@ function doAdd(){$('aBtn').disabled=true;msg('am','');
   call('themLead',{ngayNhan:$('aNgay').value,nguon:$('aNguon').value,ten:$('aTen').value,sdt:$('aSdt').value,link:$('aLink').value,cachSdt:$('aCach').value,
    sale:$('aSale').value,giaTri:$('aGia').value,tomLuoc:$('aTl').value,ghiChu:$('aGc').value,loaiViec:$('aLoai').value,hanhDong:$('aHd').value,ngayHanhDong:$('aNgayHd').value},function(r){
    $('aBtn').disabled=false;if(!r.ok){msg('am',r.msg);return}
-   msg('am','Đã lưu. Mã lead: '+r.ma,true);['aTen','aSdt','aLink','aGia','aTl','aGc','aHd','aNgayHd'].forEach(function(i){$(i).value=''});$('aCach').value='';srcChange()})}
+   msg('am','Đã lưu. Mã lead: '+r.ma,true);['aTen','aSdt','aLink','aGia','aTl','aGc','aHd'].forEach(function(i){$(i).value=''});$('aNgayHd').value=homNay();$('aCach').value='';srcChange()})}
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
 function dmy(s){var m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(s||'');return m?m[3]+'/'+m[2]+'/'+m[1]:(s||'')}
 function dt(ms){if(!ms)return'';var d=new Date(ms+7*3600000),p=function(n){return('0'+n).slice(-2)};return p(d.getUTCDate())+'/'+p(d.getUTCMonth()+1)+'/'+d.getUTCFullYear()+' '+p(d.getUTCHours())+':'+p(d.getUTCMinutes())}
@@ -548,7 +550,7 @@ function phieu(l,i){var p=PHIEU,than,nut;
   return'<tr class="phieu" data-phieu="'+esc(l.ma)+'" data-kieu="'+p.kieu+'"><td colspan="8"><div class="phieuIn" onkeydown="if(event.key===\'Enter\'&&event.target.tagName===\'INPUT\'){event.preventDefault();guiPhieu()}">'+than
    +'<button type="button" id="pGui" onclick="guiPhieu()"'+(p.dang?' disabled':'')+'>'+nut+'</button><button type="button" class="sec lon" onclick="dongPhieu()">Huỷ</button>'
    +(p.loi?'<div id="pLoi" class="msg err" role="alert">'+esc(p.loi)+'</div>':'')+'</div></td></tr>'}
-function taoPhieu(i,kieu,chuyen,o){var l=LEADS[i];PHIEU={ma:l.ma,kieu:kieu,chuyen:chuyen,link:l.linkProposal||'',qlda:l.qlda||'',brief:l.linkBrief||'',muc:[],ghi:'',loai:l.loaiViec||'',ngay:l.ngayHd||'',loi:'',dang:false};renderList();var f=$(o);if(f)f.focus()}
+function taoPhieu(i,kieu,chuyen,o){var l=LEADS[i];PHIEU={ma:l.ma,kieu:kieu,chuyen:chuyen,link:l.linkProposal||'',qlda:l.qlda||'',brief:l.linkBrief||'',muc:[],ghi:'',loai:l.loaiViec||'',ngay:chuyen?homNay():l.ngayHd||'',loi:'',dang:false};renderList();var f=$(o);if(f)f.focus()}
 function moPhieu(i,chuyen){taoPhieu(i,'link',chuyen,'pLink')}
 function moHoSo(i,chuyen){taoPhieu(i,'hoso',chuyen,LEADS[i].qlda?'pBrief':'pQlda')}
 function moYk(i){taoPhieu(i,'ykien',false,'pGhi')}
@@ -591,19 +593,21 @@ function doiGd(i,v){var l=LEADS[i];if(v===l.giaiDoan)return;
   if(v===DA_GUI){moPhieu(i,true);return}
   if(v===CHO_PRO&&U.role!=='QLDA'&&!(l.qlda&&l.linkBrief&&DM.loaiViec.indexOf(l.loaiViec)>=0&&l.ngayHd)){moHoSo(i,true);return}
   if(LOSS.indexOf(v)>=0||v==='Đã ký'||(CLOSED.indexOf(v)<0&&!(DM.loaiViec.indexOf(l.loaiViec)>=0&&l.ngayHd))){openGd(i,v);return}
-  call('doiGiaiDoan',{ma:l.ma,giaiDoan:v,mucTiemNang:l.mucTiemNang,loaiViec:l.loaiViec,hanhDong:l.hanhDong,ngayHanhDong:l.ngayHd},function(r){
-   if(!r.ok){openGd(i,v);msg('gm',r.msg);return}l.giaiDoan=v;l.lyDo='';thong('Đã đổi giai đoạn '+l.ma+' sang "'+v+'". Việc tiếp theo giữ nguyên, bấm ✎ nếu cần cập nhật.',true);renderList()})}
+  // doi nhanh: hen tu hom nay tro di thi giu, ngay da qua thi lay ngay chuyen giai doan
+  var nay=homNay(),qua=!(l.ngayHd>=nay),ngay=qua?nay:l.ngayHd;
+  call('doiGiaiDoan',{ma:l.ma,giaiDoan:v,mucTiemNang:l.mucTiemNang,loaiViec:l.loaiViec,hanhDong:l.hanhDong,ngayHanhDong:ngay},function(r){
+   if(!r.ok){openGd(i,v);msg('gm',r.msg);return}l.giaiDoan=v;l.lyDo='';if(CLOSED.indexOf(v)<0)l.ngayHd=ngay;thong('Đã đổi giai đoạn '+l.ma+' sang "'+v+'". '+(qua?'Ngày làm cũ đã qua nên đổi sang hôm nay':'Việc tiếp theo giữ nguyên')+', bấm ✎ nếu cần cập nhật.',true);renderList()})}
 function askSdt(i){var l=LEADS[i],v=prompt('SĐT mới của '+l.ten+' (0xxxxxxxxx):',l.sdt||'');if(v===null)return;
   var c=l.sdt&&l.cachSdt?l.cachSdt:(confirm('SĐT này do khách cho?\nOK = Khách cho, Hủy = Tự tìm')?'Khách cho':'Tự tìm');
   call('capNhatSdt',{ma:l.ma,sdt:v,cachSdt:c},function(r){if(!r.ok){thong(r.msg);return}thong('Đã cập nhật SĐT của '+l.ma+'.',true);loadList()})}
 var BACK='list';
 function dongModal(){$('pGd').classList.remove('modal');$('bd').classList.add('hidden')}
-function napGd(l,gd){$('gMa').textContent=l.ma+' · '+l.ten;$('gGd').value=gd||l.giaiDoan;$('gMuc').value=l.mucTiemNang;$('gLoai').value=l.loaiViec||'';$('gNgay').value=l.ngayHd||'';$('gHd').value=l.hanhDong||'';$('gLink').value=l.linkProposal||'';datQlda('gQlda',l.qlda);$('gBrief').value=l.linkBrief||'';$('gLy').value=gd&&gd!==l.giaiDoan?'':(l.lyDo||'');window.__gm=null;gdChange();msg('gm','')}
+function napGd(l,gd){$('gMa').textContent=l.ma+' · '+l.ten;$('gGd').value=gd||l.giaiDoan;$('gMuc').value=l.mucTiemNang;$('gLoai').value=l.loaiViec||'';$('gNgay').value=l.ngayHd||'';$('gHd').value=l.hanhDong||'';$('gLink').value=l.linkProposal||'';datQlda('gQlda',l.qlda);$('gBrief').value=l.linkBrief||'';$('gLy').value=gd&&gd!==l.giaiDoan?'':(l.lyDo||'');window.__gm=null;window.__ngayTay=false;gdChange();msg('gm','')}
 function openGd(i,gd){PHIEU=null;BACK='list';CUR=LEADS[i];$('pGd').classList.remove('hidden');$('pGd').classList.add('modal');$('bd').classList.remove('hidden');napGd(CUR,gd);
   $('gHist').textContent='Đang tải...';
   call('lichSu',{ma:CUR.ma},function(r){$('gHist').innerHTML=r.ls&&r.ls.length?r.ls.map(function(h){return esc(dt(h.luc))+': '+esc(h.tu)+' → '+esc(h.den)+' ('+esc(h.boi)+')'}).join('<br>'):'Chưa có lần đổi nào.'})}
 function veDanhSach(luu){dongModal();$('pGd').classList.add('hidden');if($('pList').classList.contains('hidden'))show('list');else if(luu)loadList();else renderList()}
-function gdChange(){var g=$('gGd').value;$('gHS').classList.toggle('hidden',g!==CHO_PRO||U.role==='QLDA');$('gProp').classList.toggle('hidden',g!==DA_GUI);$('gOpen').classList.toggle('hidden',CLOSED.indexOf(g)>=0);$('gLost').classList.toggle('hidden',LOSS.indexOf(g)<0)}
+function gdChange(){var g=$('gGd').value;if(!window.__ngayTay&&CUR)$('gNgay').value=g!==CUR.giaiDoan?homNay():CUR.ngayHd||homNay();$('gHS').classList.toggle('hidden',g!==CHO_PRO||U.role==='QLDA');$('gProp').classList.toggle('hidden',g!==DA_GUI);$('gOpen').classList.toggle('hidden',CLOSED.indexOf(g)>=0);$('gLost').classList.toggle('hidden',LOSS.indexOf(g)<0)}
 function doGd(){call('doiGiaiDoan',{ma:CUR.ma,giaiDoan:$('gGd').value,mucTiemNang:$('gMuc').value,lyDo:$('gLy').value,loaiViec:$('gLoai').value,hanhDong:$('gHd').value,ngayHanhDong:$('gNgay').value},function(r){
   if(!r.ok){msg('gm',r.msg);return}if(BACK==='detail')openDetail(CUR.ma);else veDanhSach(true)})}
 function cancelGd(){if(BACK==='detail')openDetail(CUR.ma);else veDanhSach(false)}
@@ -631,9 +635,12 @@ function veYk(l,ds,own){var ghi=own&&U.role!=='QLDA'&&GD_YK.indexOf(l.giaiDoan)>
 function dYkLuu(){var ma=D.ma,m=[].filter.call(document.querySelectorAll('#dYk input[name=dYkMuc]'),function(o){return o.checked}).map(function(o){return o.value});
   if(!m.length){msg('dYkMsg','Chọn ít nhất một điều khách lăn tăn.');return}
   $('dYkLuu').disabled=true;call('ghiYKien',{ma:ma,muc:m,ghiChu:$('dYkGhi').value.trim()},function(r){if(!r.ok){$('dYkLuu').disabled=false;msg('dYkMsg',r.msg);return}openDetail(ma);setTimeout(function(){msg('dmsg','Đã ghi ý kiến khách.',true)},400)})}
+var TK=[];
 function loadUsers(){call('danhSachTaiKhoan',{},function(r){if(!r.ok){msg('umsg',r.msg);return}
-  $('ub').innerHTML=r.users.map(function(u){return'<tr><td>'+esc(u.username)+'</td><td>'+esc(u.ten)+'</td><td>'+esc(u.role)+'</td><td>'+(u.active?'Hoạt động':'Đã tắt')+'</td><td>'+
-   '<button class="sec" onclick="resetPw(\''+esc(u.username)+'\')">Đặt lại mật khẩu</button> <button class="sec" onclick="toggleUser(\''+esc(u.username)+'\','+(u.active?0:1)+')">'+(u.active?'Tắt':'Bật')+'</button></td></tr>'}).join('')})}
+  TK=r.users;$('ub').innerHTML=r.users.map(function(u,i){return'<tr><td>'+esc(u.username)+'</td><td>'+esc(u.ten)+'</td><td>'+esc(u.role)+'</td><td>'+(u.active?'Hoạt động':'Đã tắt')+'</td><td>'+
+   '<button class="sec" onclick="resetPw(\''+esc(u.username)+'\')">Đặt lại mật khẩu</button> <button class="sec" onclick="toggleUser(\''+esc(u.username)+'\','+(u.active?0:1)+')">'+(u.active?'Tắt':'Bật')+'</button>'+(u.username===U.username?'':' <button class="sec xoa" onclick="xoaTk('+i+')">Xóa</button>')+'</td></tr>'}).join('')})}
+function xoaTk(i){var u=TK[i];if(!u||!confirm('Xóa hẳn tài khoản "'+u.username+'" ('+u.ten+')?\n\nNgười dùng tài khoản này bị đăng xuất ngay. Không khôi phục được.\nLead, hợp đồng và lịch sử giữ nguyên.'+(u.role==='Sale'?'\nMuốn đứng tên Sale "'+u.ten+'" lại thì phải tạo tài khoản mới đúng họ tên này.':'')))return;
+  call('xoaTaiKhoan',{username:u.username},function(r){if(!r.ok){msg('umsg',r.msg);return}msg('umsg','Đã xóa tài khoản '+u.username+'.',true);loadUsers()})}
 function resetPw(u){if(!confirm('Đặt lại mật khẩu của '+u+'?'))return;call('datLaiMatKhau',{username:u},function(r){msg('umsg',r.ok?'Mật khẩu tạm của '+u+': '+r.matKhauTam+' (chỉ hiện một lần, gửi riêng cho người đó)':r.msg,r.ok)})}
 function toggleUser(u,on){call('tatTaiKhoan',{username:u,bat:on},function(r){if(!r.ok){msg('umsg',r.msg);return}loadUsers()})}
 function doNewUser(){call('taoTaiKhoan',{username:$('nUser').value,ten:$('nTen').value,role:$('nRole').value},function(r){

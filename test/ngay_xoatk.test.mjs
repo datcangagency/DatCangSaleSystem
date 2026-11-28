@@ -11,7 +11,7 @@ const stamp = Date.now().toString(36); const PW = 'MatKhauNx2026xx';
 const mk = async (un, ten, role) => { const tmp = (await api('taoTaiKhoan', { username: un, ten, role }, adm)).matKhauTam; const t = (await api('login', { username: un, password: tmp })).token; await api('doiMatKhau', { cu: tmp, moi: PW }, t); return (await api('login', { username: un, password: PW })).token; };
 const SALE = 'Linh'; const un = 'nx_' + stamp; const tok = await mk(un, SALE, 'Sale');
 let so = Number(String(Date.now()).slice(-7));
-const them = async (ten, ngay, t = tok) => (await api('themLead', { ngayNhan: '2020-01-01', nguon: 'Được giới thiệu', ten, sdt: '093' + String(so++).slice(-7), cachSdt: 'Khách cho', sale: SALE, loaiViec: 'Gọi lại', ngayHanhDong: ngay }, t)).ma;
+const them = async (ten, ngay, t = tok) => (await api('themLead', { ngayNhan: '2020-01-01', nguon: 'Được giới thiệu', ten, sdt: '093' + String(so++).padStart(7, '0').slice(-7), cachSdt: 'Khách cho', sale: SALE, loaiViec: 'Gọi lại', ngayHanhDong: ngay }, t)).ma;
 const QUA = await them('NgayQua ' + stamp, '2020-01-02'), TOI = await them('NgayToi ' + stamp, '2099-03-04'), FORM = await them('NgayForm ' + stamp, '2099-05-06');
 ok(QUA && TOI && FORM, 'tao 3 lead mau');
 
@@ -21,7 +21,7 @@ const mo = async (user, pw) => { const dom = new JSDOM(html, { runScripts: 'dang
 const wait = (ms = 150) => new Promise((r) => setTimeout(r, ms));
 let { w, d, $ } = await mo(un, PW);
 ok($('aNgayHd').value === nay, 'Them lead: ngay viec tiep theo mac dinh hom nay: ' + $('aNgayHd').value);
-$('aNguon').value = 'Được giới thiệu'; $('aTen').value = 'NgayAdd ' + stamp; $('aSdt').value = '094' + String(so++).slice(-7); w.srcChange(); $('aCach').value = 'Khách cho'; $('aLoai').value = 'Gọi lại'; $('aNgayHd').value = '2099-07-07';
+$('aNguon').value = 'Được giới thiệu'; $('aTen').value = 'NgayAdd ' + stamp; $('aSdt').value = '094' + String(so++).padStart(7, '0').slice(-7); w.srcChange(); $('aCach').value = 'Khách cho'; $('aLoai').value = 'Gọi lại'; $('aNgayHd').value = '2099-07-07';
 w.doAdd(); await wait(600); ok(/Đã lưu/.test($('am').textContent) && $('aNgayHd').value === nay, 'luu xong o ngay ve lai hom nay');
 w.show('list'); await wait(500); w.chonTab(''); await wait(300);
 const idx = (ma) => w.eval('LEADS').findIndex((l) => l.ma === ma);

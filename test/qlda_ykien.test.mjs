@@ -13,7 +13,7 @@ const stamp = Date.now().toString(36);
 const mk = async (un, ten, role) => { const tmp = (await api('taoTaiKhoan', { username: un, ten, role }, adm)).matKhauTam; const t = (await api('login', { username: un, password: tmp })).token; await api('doiMatKhau', { cu: tmp, moi: 'MatKhauYk2026xx' }, t); return t; };
 const sOwn = await mk('yk_own_' + stamp, 'Dương', 'Sale'), sKhac = await mk('yk_oth_' + stamp, 'An', 'Sale'), ql = await mk('yk_ql_' + stamp, q, 'QLDA');
 let so = Number(String(Date.now()).slice(-7));
-const them = async (ten) => { const r = await api('themLead', { ngayNhan: '2026-11-20', nguon: 'Được giới thiệu', ten, sdt: '092' + String(so++).slice(-7), cachSdt: 'Khách cho', sale: 'Dương', loaiViec: 'Gọi lại', ngayHanhDong: '2099-01-01' }, adm); if (!r.ok) throw new Error(r.msg); return r.ma; };
+const them = async (ten) => { const r = await api('themLead', { ngayNhan: '2026-11-20', nguon: 'Được giới thiệu', ten, sdt: '092' + String(so++).padStart(7, '0').slice(-7), cachSdt: 'Khách cho', sale: 'Dương', loaiViec: 'Gọi lại', ngayHanhDong: '2099-01-01' }, adm); if (!r.ok) throw new Error(r.msg); return r.ma; };
 const xem = async (ma) => api('chiTietLead', { ma }, adm);
 const viec = { loaiViec: 'Gọi lại', ngayHanhDong: '2099-02-01' };
 const doi = (ma, x, t = sOwn) => api('doiGiaiDoan', { ma, ...viec, ...x }, t);
@@ -120,11 +120,12 @@ bt = [...row(F).querySelectorAll('button.them')].find((b) => /Ghi thêm/.test(b.
 ok(/Lăn tăn: Thời điểm/.test(row(F).textContent) && /2 lần ghi/.test(row(F).textContent), 'ghi them: hien lan moi nhat va so lan');
 // trang chi tiet
 w.openDetail(F); await wait(800);
-ok($('dFields').querySelector('a[href="https://example.com/brief-f2"]') && /QLDA phụ trách/.test($('dFields').textContent) && /QLDA & link Brief/.test($('dActs').textContent), 'chi tiet co QLDA, Brief, nut sua');
+ok($('dFields').querySelector('a[href="https://example.com/brief-f2"]') && /QLDA phụ trách/.test($('dFields').textContent) && $('dFields').querySelector('[data-k="qlda"] button.but') && $('dFields').querySelector('[data-k="linkBrief"] button.but'), 'chi tiet co QLDA, Brief, nut sua');
 ok($('dYk').querySelectorAll('tbody tr').length === 2 && /cho sep duyet/.test($('dYk').textContent) && $('dYkLuu'), 'chi tiet co lich su y kien va o ghi them');
-w.dHs(); ok($('dhQlda').value === q2 && $('dhBrief').value.endsWith('brief-f2'), 'form sua dien san');
-$('dhBrief').value = 'sai'; w.dHsLuu(); await wait(700); ok(/không hợp lệ/.test($('dhMsg').textContent), 'chi tiet: link sai bao loi');
-$('dhBrief').value = 'https://example.com/brief-f3'; $('dhQlda').value = q; w.dHsLuu(); await wait(1400); ok($('dFields').querySelector('a[href="https://example.com/brief-f3"]') && !$('dhQlda'), 'chi tiet: luu duoc, dong form');
+const but = (k) => $('dFields').querySelector(`[data-k="${k}"] button.but`);
+but('linkBrief').click(); ok($('dsV').value.endsWith('brief-f2'), 'form sua dien san');
+$('dsV').value = 'sai'; $('dsLuu').click(); await wait(700); ok(/không hợp lệ/.test($('dsMsg').textContent), 'chi tiet: link sai bao loi');
+$('dsV').value = 'https://example.com/brief-f3'; $('dsLuu').click(); await wait(1400); but('qlda').click(); $('dsV').value = q; $('dsLuu').click(); await wait(1400); ok($('dFields').querySelector('a[href="https://example.com/brief-f3"]') && !$('dsV') && $('dFields').querySelector('[data-k="qlda"] .gt').textContent === q, 'chi tiet: luu duoc, dong form');
 w.dYkLuu(); ok(/ít nhất một/.test($('dYkMsg').textContent), 'chi tiet: phai chon muc');
 d.querySelector('#dYk input[value="Đang so sánh bên khác"]').click(); w.dYkLuu(); await wait(1400); ok($('dYk').querySelectorAll('tbody tr').length === 3 && /Đang so sánh bên khác/.test($('dYk').querySelector('tbody tr').textContent), 'chi tiet: ghi y kien');
 // modal doi giai doan -> Da ky: form hop dong dien san
@@ -157,5 +158,5 @@ const G = await them('Khach YK G ' + stamp); await api('doiGiaiDoan', { ma: G, g
 const Q = await mo('yk_ql_' + stamp);
 ok(Q.sel(G, 'qlda') && Q.sel(G, 'qlda').disabled && !Q.row(G).querySelector('.hs button') && !/Ý kiến khách/.test(Q.row(G).textContent), 'QLDA chi xem: khong sua QLDA, Brief, y kien');
 { const s = Q.sel(G, 'giaiDoan'); s.value = 'Khách chờ Proposal'; s.dispatchEvent(new Q.w.Event('change')); await wait(900); ok(!Q.$('tb').querySelector('tr.phieu') && Q.sel(G, 'giaiDoan').value === 'Khách chờ Proposal', 'QLDA doi giai doan khong mo o QLDA'); }
-Q.w.openDetail(G); await wait(700); ok(!/QLDA & link Brief/.test(Q.$('dActs').textContent) && !Q.$('dYkLuu'), 'QLDA: chi tiet khong co nut sua');
+Q.w.openDetail(G); await wait(700); ok(!Q.$('dFields').querySelector('[data-k="qlda"] button.but, [data-k="linkBrief"] button.but') && !Q.$('dYkLuu'), 'QLDA: chi tiet khong co nut sua QLDA, Brief');
 console.log(`${pass} pass, ${failn} fail`); process.exit(failn ? 1 : 0);

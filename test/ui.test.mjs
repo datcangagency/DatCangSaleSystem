@@ -14,7 +14,8 @@ const w = dom.window, d = w.document, $ = (i) => d.getElementById(i), vis = (i) 
 const wait = (ms = 150) => new Promise((r) => setTimeout(r, ms));
 ok(vis('vLogin'), 'hien man dang nhap');
 $('lu').value = un; $('lp').value = 'MatKhauUi2026xx'; w.doLogin(); await wait(500);
-ok(vis('vApp') && !vis('vLogin') && vis('pAdd'), 'dang nhap xong vao ung dung, man Them lead hien');
+ok(vis('vApp') && !vis('vLogin') && vis('pList') && !vis('pAdd'), 'dang nhap xong vao ung dung, man danh sach lead hien');
+w.show('add'); await wait(200);
 ok($('aSale').value === 'Linh' && $('aSale').disabled, 'Sale tu chon chinh minh, khong sua duoc');
 ok(!vis('dLink') && !vis('dCach'), 'chua chon nguon: an link va cach co SDT');
 $('aNguon').value = 'Chạy ad Facebook'; w.srcChange(); ok(vis('dLink') && !vis('dCach'), 'nguon ad FB: hien link, chua co SDT thi an cach co SDT');
@@ -96,9 +97,10 @@ row(R1).querySelector('.prop button').click(); ok(panel() && !$('pLoai') && /Lư
 ok(row(R2).querySelector('button.them') && [...row(R2).querySelectorAll('button.them')].some((b) => /Gửi link/.test(b.textContent)), 'lead chua gui co nut Gui link');
 await pick(R1, 'giaiDoan', 'Đã liên hệ'); await pick(R1, 'giaiDoan', 'Đã gửi Proposal'); ok(panel() && $('pLink').value === 'https://example.com/proposal-' + un, 'quay lai: link cu dien san'); panel().querySelector('button.sec').click();
 const ma1 = row(R1).dataset.ma; w.openDetail(ma1); await wait(600);
-ok($('dFields').querySelector('a[href="https://example.com/proposal-' + un + '"]') && /Sửa link Proposal/.test($('dActs').textContent) && /Link Proposal:/.test($('dEv').textContent), 'trang chi tiet co link, nut sua va lich su');
-w.prompt = () => 'https://example.com/v2-' + un; w.dLink(); await wait(1200); ok($('dFields').querySelector('a[href="https://example.com/v2-' + un + '"]'), 'sua link tu trang chi tiet');
-w.prompt = () => 'javascript:alert(1)'; w.dLink(); await wait(700); ok(/không hợp lệ/.test($('dmsg').textContent), 'chan link javascript:');
+ok($('dFields').querySelector('a[href="https://example.com/proposal-' + un + '"]') && $('dFields').querySelector('[data-k="linkProposal"] button.but') && /Link Proposal:/.test($('dEv').textContent), 'trang chi tiet co link, nut sua va lich su');
+const suaCt = async (k, v) => { $('dFields').querySelector(`[data-k="${k}"] button.but`).click(); $('dsV').value = v; $('dsLuu').click(); await wait(1200); };
+await suaCt('linkProposal', 'https://example.com/v2-' + un); ok($('dFields').querySelector('a[href="https://example.com/v2-' + un + '"]'), 'sua link tu trang chi tiet');
+await suaCt('linkProposal', 'javascript:alert(1)'); ok(/không hợp lệ/.test($('dsMsg').textContent), 'chan link javascript:'); $('dsHuy').click();
 w.show('list'); await wait(600); ok(!$('tb').querySelector('tr.phieu'), 'mo lai danh sach khong con o nhap');
 // chuyen Sale: Huy giu nguyen, dong y thi chuyen
 w.prompt = () => null; await pick(R1, 'sale', 'An'); ok(sel(R1, 'sale').value === 'Linh', 'Huy chuyen Sale giu nguyen');

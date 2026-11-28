@@ -42,7 +42,7 @@ ok(/0911000001/.test($('dFields').textContent) && /Spa, cần/.test($('dFields')
 ok($('dEv').children.length >= 3, 'bang lich su hoat dong: ' + $('dEv').children.length + ' dong');
 ok(/Đổi giai đoạn/.test($('dActs').textContent) && /Chuyển Sale/.test($('dActs').textContent), 'co nut thao tac tren trang khach');
 w.dGd(); await wait(400); ok(vis('pGd'), 'Doi giai doan mo tu trang khach'); w.cancelGd(); await wait(500); ok(vis('pDetail'), 'Huy quay ve trang khach');
-w.dSale(); await wait(700); ok(/Mau 1/.test($('dTitle').textContent) && /Chuyển Sale/.test($('dEv').textContent), 'chuyen Sale tu trang khach, lich su cap nhat');
+w.dSale(); $('dsV').value = 'Linh'; $('dsLuu').click(); await wait(900); ok(/Mau 1/.test($('dTitle').textContent) && /Chuyển Sale/.test($('dEv').textContent), 'chuyen Sale tu trang khach, lich su cap nhat');
 w.show('report'); await wait(800);
 ok(vis('pReport') && /Tổng quan tháng/.test($('rBody').textContent) && /Theo Sale/.test($('rBody').textContent), 'trang bao cao hien');
 ok($('rBody').querySelectorAll('table').length >= 6, 'bao cao co ' + $('rBody').querySelectorAll('table').length + ' bang');

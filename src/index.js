@@ -174,6 +174,9 @@ function stmtHoSo(env, a, bang, ma, cu, moi) {
   return [env.DB.prepare(`UPDATE ${bang} SET ${cot.map((k) => k + '=?').join(', ')}, sua_boi=?, sua_luc=? WHERE ma=?`).bind(...cot.map((k) => moi[k]), a.ten, now(), ma),
     logStmt(env, a.username, 'SUA_NHANH', ma, cot.map((k) => `${TEN_HS[k]}: ${cu[k] || '(trống)'} → ${moi[k] || '(trống)'}`).join(' | '))];
 }
+// Các trường chỉ sửa ở trang chi tiết: Admin hoặc Sale phụ trách.
+const CHU_DAI = { hanhDong: ['hanh_dong', 'Mô tả việc tiếp theo', 300], tomLuoc: ['tom_luoc', 'Tóm lược', 1000], ghiChu: ['ghi_chu', 'Ghi chú', 500] };
+const SUA_THONG_TIN = ['ten', 'link', 'ngayNhan', 'ngayHd', 'giaTri', ...Object.keys(CHU_DAI)];
 const docMuc = (v) => { try { const x = JSON.parse(v); return Array.isArray(x) ? x : []; } catch (e) { return []; } };
 const ykOut = (r) => ({ ngay: r.ngay, giaiDoan: r.giai_doan, muc: docMuc(r.muc), ghiChu: r.ghi_chu, boi: r.boi });
 
@@ -404,15 +407,45 @@ const API = {
     return { ok: true };
   },
 
-  // Đổi nhanh một trường ngay trên danh sách lead.
+  // Đổi một trường của lead (trên danh sách hoặc nút bút chì ở trang chi tiết).
   async suaNhanh(env, req, a, d) {
     const truong = String(d.truong || ''), v = String(d.giaTri ?? '').trim();
     const l = await env.DB.prepare('SELECT * FROM leads WHERE ma = ?').bind(String(d.ma || '')).first();
     if (!l) return fail('Không tìm thấy lead.');
     if (a.role === 'Sale' && l.sale !== a.ten) return fail('Lead này không thuộc Sale của bạn.');
-    const dm = await catalog(env);
-    let cot, nhan, moi = v, cu;
-    if (truong === 'sao') {
+    if (SUA_THONG_TIN.includes(truong) && a.role === 'QLDA') return fail('Chỉ Sale phụ trách hoặc Admin được sửa thông tin này.');
+    const dm = await catalog(env), dong = CLOSED.includes(l.giai_doan);
+    let cot, nhan, moi = v, cu, linkKey = null;
+    if (truong === 'ten') {
+      if (!v || v.length > 200) return fail('Tên khách bắt buộc, tối đa 200 ký tự.');
+      cot = 'ten'; nhan = 'Tên khách'; moi = safe(v); cu = l.ten;
+    } else if (CHU_DAI[truong]) {
+      const [c, n, toiDa] = CHU_DAI[truong];
+      if (truong === 'hanhDong' && dong) return fail('Lead đã đóng, không có việc tiếp theo.');
+      if (v.length > toiDa) return fail(`${n} tối đa ${toiDa} ký tự.`);
+      cot = c; nhan = n; moi = safe(v); cu = l[c] || '';
+    } else if (truong === 'link') {
+      linkKey = v ? normLink(v) : '';
+      if (v && !linkKey) return fail('Link Facebook/fanpage không hợp lệ.');
+      if (v.length > 300) return fail('Link tối đa 300 ký tự.');
+      if (!v && !l.sdt) return fail('Lead chưa có SĐT nên cần giữ link Facebook/fanpage.');
+      const dup = await findDup(env, '', linkKey, l.ma); if (dup) return fail(dup);
+      cot = 'link'; nhan = 'Link Facebook'; moi = safe(v); cu = l.link || '';
+    } else if (truong === 'ngayNhan') {
+      if (!validDate(v)) return fail('Ngày nhận không hợp lệ.');
+      if (v > bkk().toISOString().slice(0, 10)) return fail('Ngày nhận không được sau hôm nay.');
+      if (!dong && l.ngay_hd && v > l.ngay_hd) return fail('Ngày nhận không được sau ngày làm việc tiếp theo.');
+      cot = 'ngay_nhan'; nhan = 'Ngày nhận'; cu = l.ngay_nhan;
+    } else if (truong === 'ngayHd') {
+      if (dong) return fail('Lead đã đóng, không có việc tiếp theo.');
+      if (!validDate(v)) return fail('Ngày làm không hợp lệ.');
+      if (v < l.ngay_nhan) return fail('Ngày làm không được trước ngày nhận.');
+      cot = 'ngay_hd'; nhan = 'Ngày làm'; cu = l.ngay_hd || '';
+    } else if (truong === 'giaTri') {
+      // chap nhan 15000000 hoac 15.000.000; khong doan so le nhu 1.5
+      if (v && !/^(\d{1,13}|\d{1,3}([.,\s]\d{3}){1,4})$/.test(v)) return fail('Giá trị dự kiến chỉ gồm chữ số, ví dụ 15000000 hoặc 15.000.000.');
+      cot = 'gia_tri'; nhan = 'Giá trị dự kiến'; moi = v ? Number(v.replace(/\D/g, '')) : null; cu = l.gia_tri;
+    } else if (truong === 'sao') {
       const nen = l.sdt ? 1 : 0, n = v === '' ? NaN : Number(v);
       if (!(n === nen || n === 2 || n === 3)) return fail(l.sdt ? 'Lead đã có SĐT: chọn 1, 2 hoặc 3 sao.' : 'Lead chưa có SĐT: chọn 0, 2 hoặc 3 sao.');
       cot = 'uu_tien'; nhan = 'Số sao'; moi = n; cu = soSao(l);
@@ -437,10 +470,15 @@ const API = {
       cot = 'link_proposal'; nhan = 'Link Proposal'; cu = l.link_proposal || '';
     } else return fail('Không đổi được trường này.');
     if (moi === cu) return { ok: true };
-    await env.DB.batch([
-      env.DB.prepare(`UPDATE leads SET ${cot}=?, sua_boi=?, sua_luc=? WHERE ma=?`).bind(moi, a.ten, now(), l.ma),
-      logStmt(env, a.username, 'SUA_NHANH', l.ma, `${nhan}: ${cu === '' || cu == null ? '(trống)' : cu} → ${moi}`),
-    ]);
+    const ngay = (x) => String(x).replace(/^(\d{4})-(\d{2})-(\d{2})$/, '$3/$2/$1');
+    const doc = (x) => (x === '' || x == null ? '(trống)' : truong === 'ngayNhan' || truong === 'ngayHd' ? ngay(x) : x);
+    const them = linkKey === null ? '' : ', link_key=?';
+    try {
+      await env.DB.batch([
+        env.DB.prepare(`UPDATE leads SET ${cot}=?${them}, sua_boi=?, sua_luc=? WHERE ma=?`).bind(moi, ...(them ? [linkKey] : []), a.ten, now(), l.ma),
+        logStmt(env, a.username, 'SUA_NHANH', l.ma, `${nhan}: ${doc(cu)} → ${doc(moi)}`),
+      ]);
+    } catch (err) { if (/UNIQUE/i.test(String(err))) return fail('Link này đã có ở lead khác.'); throw err; }
     return { ok: true };
   },
 
